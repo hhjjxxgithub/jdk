@@ -38,64 +38,24 @@
  *
  * Warn if unsupported non-hierarchical cgroup accounting is being done.
  */
-void CgroupV1MemoryController::check_mem_hierarchy() {
+jlong CgroupV1MemoryController::check_mem_hierarchy() {
   static volatile int once = 1;
   if (Atomic::xchg(&once, 0) == 0) {
-    return;
+    return 0;
   }
 
-  jlong use_hierarchy;
-  int err = cg_file_contents_ctrl(static_cast<CgroupV1Controller*>(this), "/memory.use_hierarchy", JLONG_FORMAT, &use_hierarchy);
-  if (err != 0) {
-    log_trace(os, container)("Use Hierarchy is: %d", OSCONTAINER_ERROR);
-    return;
-  }
+  julong use_hierarchy;
+  CONTAINER_READ_NUMBER_CHECKED(this, "/memory.use_hierarchy", "Use Hierarchy", use_hierarchy);
   log_trace(os, container)("Use Hierarchy is: " JLONG_FORMAT, use_hierarchy);
   if (!use_hierarchy) {
     warning("Non-hierarchical mode (in cgroup v1) is not supported, check \"memory.use_hierarchy\".");
   }
-}
-
-/* uses_mem_hierarchy
- *
- * Return whether or not hierarchical cgroup accounting is being
- * done.
- *
- * return:
- *    A number > 0 if true, or
- *    OSCONTAINER_ERROR for not supported
- */
-jlong CgroupV1MemoryController::uses_mem_hierarchy() {
-  julong use_hierarchy;
-  CONTAINER_READ_NUMBER_CHECKED(this, "/memory.use_hierarchy", "Use Hierarchy", use_hierarchy);
-  return (jlong)use_hierarchy;
+  return 0;
 }
 
 void CgroupV1MemoryController::set_subsystem_path(const char *cgroup_path) {
   CgroupV1Controller::set_subsystem_path(cgroup_path);
   check_mem_hierarchy();
-}
-
-static inline
-void do_trace_log(julong read_mem_limit, julong host_mem) {
-  if (log_is_enabled(Debug, os, container)) {
-    jlong mem_limit = (jlong)read_mem_limit; // account for negative values
-    if (mem_limit < 0 || read_mem_limit >= host_mem) {
-      const char *reason;
-      if (mem_limit == OSCONTAINER_ERROR) {
-        reason = "failed";
-      } else if (mem_limit == -1) {
-        reason = "unlimited";
-      } else {
-        assert(read_mem_limit >= host_mem, "Expected read value exceeding host_mem");
-        // Exceeding physical memory is treated as unlimited. This implementation
-        // caps it at host_mem since Cg v1 has no value to represent 'max'.
-        reason = "ignored";
-      }
-      log_debug(os, container)("container memory limit %s: " JLONG_FORMAT ", using host value " JLONG_FORMAT,
-                               reason, mem_limit, host_mem);
-    }
-  }
 }
 
 static inline
@@ -126,26 +86,22 @@ jlong CgroupV1MemoryController::read_memory_limit_in_bytes(julong phys_mem) {
   CONTAINER_READ_NUMBER_CHECKED(v1_controller, "/memory.limit_in_bytes", "Memory Limit", memlimit);
   if (memlimit >= phys_mem) {
     log_trace(os, container)("Non-Hierarchical Memory Limit is: Unlimited");
-    if (is_hierarchical()) {
-      julong hier_memlimit;
-      bool is_ok = v1_controller->read_numerical_key_value("/memory.stat", "hierarchical_memory_limit", &hier_memlimit);
-      if (!is_ok) {
-        return OSCONTAINER_ERROR;
-      }
-      log_trace(os, container)("Hierarchical Memory Limit is: " JULONG_FORMAT, hier_memlimit);
-      if (hier_memlimit >= phys_mem) {
-        log_trace(os, container)("Hierarchical Memory Limit is: Unlimited");
-      } else {
-        do_trace_log(hier_memlimit, phys_mem);
-        return (jlong)hier_memlimit;
-      }
+    julong hier_memlimit;
+    bool is_ok = v1_controller->read_numerical_key_value("/memory.stat", "hierarchical_memory_limit", &hier_memlimit);
+    if (!is_ok) {
+      return OSCONTAINER_ERROR;
     }
+    log_trace(os, container)("Hierarchical Memory Limit is: " JULONG_FORMAT, hier_memlimit);
+    if (hier_memlimit < phys_mem) {
+      do_trace_log(hier_memlimit, phys_mem);
+      return (jlong)hier_memlimit;
+    }
+    log_trace(os, container)("Hierarchical Memory Limit is: Unlimited");
     do_trace_log(memlimit, phys_mem);
     return (jlong)-1;
-  } else {
-    do_trace_log(memlimit, phys_mem);
-    return (jlong)memlimit;
   }
+  do_trace_log(memlimit, phys_mem);
+  return (jlong)memlimit;
 }
 
 /* read_mem_swap

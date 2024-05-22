@@ -39,7 +39,7 @@ class CgroupV1Controller: virtual public CgroupController {
 class CgroupV1MemoryController: public CgroupV1Controller, public CgroupMemoryController {
 
   public:
-    void set_subsystem_path(char *cgroup_path);
+    void set_subsystem_path(const char *cgroup_path) override;
     jlong read_memory_limit_in_bytes(julong upper_bound);
     jlong memory_usage_in_bytes();
     jlong memory_and_swap_limit_in_bytes(julong host_mem, julong host_swap);
@@ -51,12 +51,12 @@ class CgroupV1MemoryController: public CgroupV1Controller, public CgroupMemoryCo
     jlong kernel_memory_usage_in_bytes();
     jlong kernel_memory_limit_in_bytes(julong host_mem);
     jlong kernel_memory_max_usage_in_bytes();
-    char *subsystem_path() override { return CgroupV1Controller::subsystem_path(); }
+    const char *subsystem_path() override { return CgroupV1Controller::subsystem_path(); }
   private:
     /* Some container runtimes set limits via cgroup
      * hierarchy. Consider also memory.stat
      * file if everything else seems unlimited */
-    void check_mem_hierarchy();
+    jlong check_mem_hierarchy();
     jlong read_mem_swappiness();
     jlong read_mem_swap(julong host_total_memsw);
 

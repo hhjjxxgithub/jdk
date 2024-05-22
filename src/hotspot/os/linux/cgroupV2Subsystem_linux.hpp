@@ -58,32 +58,6 @@ class CgroupV2MemoryController: public CgroupV2Controller, public CgroupMemoryCo
     const char *subsystem_path() { return CgroupV2Controller::subsystem_path(); }
 };
 
-class CgroupV2CpuController: public CgroupV2Controller, public CgroupCpuController {
-  public:
-    CgroupV2CpuController(char * mount_path, char *cgroup_path) : CgroupV2Controller(mount_path, cgroup_path) {
-    }
-    int cpu_quota();
-    int cpu_period();
-    int cpu_shares();
-    char *subsystem_path() { return CgroupV2Controller::subsystem_path(); }
-};
-
-class CgroupV2MemoryController: public CgroupV2Controller, public CgroupMemoryController {
-  public:
-    CgroupV2MemoryController(char * mount_path, char *cgroup_path) : CgroupV2Controller(mount_path, cgroup_path) {
-    }
-
-    jlong read_memory_limit_in_bytes(julong upper_bound);
-    jlong memory_and_swap_limit_in_bytes(julong host_mem, julong host_swp);
-    jlong memory_and_swap_usage_in_bytes(julong host_mem, julong host_swp);
-    jlong memory_soft_limit_in_bytes(julong upper_bound);
-    jlong memory_usage_in_bytes();
-    jlong memory_max_usage_in_bytes();
-    jlong rss_usage_in_bytes();
-    jlong cache_usage_in_bytes();
-    char *subsystem_path() { return CgroupV2Controller::subsystem_path(); }
-};
-
 class CgroupV2Subsystem: public CgroupSubsystem {
   private:
     /* One unified controller */

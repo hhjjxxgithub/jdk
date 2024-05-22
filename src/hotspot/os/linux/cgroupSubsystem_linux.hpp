@@ -107,11 +107,20 @@ class CgroupController: public CHeapObj<mtInternal> {
     char *_path = nullptr;
 
   public:
-    virtual char *subsystem_path() = 0;
+    virtual const char *subsystem_path() { return _path; }
     bool read_number(const char* filename, julong* result);
     bool read_string(const char* filename, char** result);
     bool read_numerical_tuple_value(const char* filename, TupleValue val, jlong* result);
     bool read_numerical_key_value(const char* filename, const char* key, julong* result);
+    bool trim_path(size_t dir_count);
+    virtual void set_subsystem_path(const char *cgroup_path);
+    CgroupController(const char *root, const char *mountpoint) : _root(os::strdup(root)), _mount_point(os::strdup(mountpoint)) {}
+    ~CgroupController() {
+      os::free(_root);
+      os::free(_mount_point);
+      os::free(_cgroup_path);
+      os::free(_path);
+    }
   private:
     inline static const char* tuple_format(TupleValue val) {
       switch(val) {
@@ -169,7 +178,7 @@ class CgroupCpuController: virtual public CgroupController {
     virtual int cpu_quota() = 0;
     virtual int cpu_period() = 0;
     virtual int cpu_shares() = 0;
-    virtual char *subsystem_path() = 0;
+    virtual const char *subsystem_path() = 0;
 };
 
 class CgroupMemoryController: virtual public CgroupController {
@@ -182,11 +191,13 @@ class CgroupMemoryController: virtual public CgroupController {
     virtual jlong memory_max_usage_in_bytes() = 0;
     virtual jlong rss_usage_in_bytes() = 0;
     virtual jlong cache_usage_in_bytes() = 0;
-    virtual char *subsystem_path() = 0;
+    virtual const char *subsystem_path() = 0;
 };
 
 
 class CgroupSubsystem: public CHeapObj<mtInternal> {
+  protected:
+    void initialize_hierarchy();
   public:
     jlong memory_limit_in_bytes();
     int active_processor_count();

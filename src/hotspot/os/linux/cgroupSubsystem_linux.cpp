@@ -542,7 +542,7 @@ bool CgroupController::read_numerical_key_value(const char* filename, const char
     log_debug(os, container)("read_numerical_key_value: filename is null");
     return false;
   }
-  char* s_path = subsystem_path();
+  const char* s_path = subsystem_path();
   if (s_path == nullptr) {
     log_debug(os, container)("read_numerical_key_value: subsystem path is null");
     return false;
@@ -633,7 +633,7 @@ bool CgroupController::read_from_file(const char* filename, const char* scan_fmt
     log_debug(os, container)("read_from_file: return pointer is null");
     return false;
   }
-  char* s_path = subsystem_path();
+  const char* s_path = subsystem_path();
   if (s_path == nullptr) {
     log_debug(os, container)("read_from_file: subsystem path is null");
     return false;

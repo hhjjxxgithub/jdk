@@ -70,10 +70,10 @@ class TestController : public CgroupController {
 private:
   char* _path;
 public:
-  TestController(char *p) {
+  TestController(char *p) : CgroupController ("/"/*root*/, "/"/*mountpoint*/) {
     _path = p;
   }
-  char* subsystem_path() override {
+  const char* subsystem_path() override {
     return _path;
   };
 };

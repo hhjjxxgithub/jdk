@@ -74,17 +74,6 @@ int CgroupV2CpuController::cpu_shares() {
   return x;
 }
 
-static
-char* cpu_quota_val(CgroupV2Controller* ctrl) {
-  char quota[1024];
-  int err = cg_file_contents_ctrl(ctrl, "/cpu.max", "%1023s %*d", quota);
-  if (err != 0) {
-    return nullptr;
-  }
-  log_trace(os, container)("Raw value for CPU quota is: %s", quota);
-  return os::strdup(quota);
-}
-
 /* cpu_quota
  *
  * Return the number of microseconds per period
@@ -286,15 +275,6 @@ void CgroupV2Subsystem::print_version_specific_info(outputStream* st) {
 
   OSContainer::print_container_helper(st, swap_current, "memory_swap_current_in_bytes");
   OSContainer::print_container_helper(st, swap_limit, "memory_swap_max_limit_in_bytes");
-}
-
-char* CgroupV2Controller::construct_path(char* mount_path, char *cgroup_path) {
-  stringStream ss;
-  ss.print_raw(mount_path);
-  if (strcmp(cgroup_path, "/") != 0) {
-    ss.print_raw(cgroup_path);
-  }
-  return os::strdup(ss.base());
 }
 
 static
