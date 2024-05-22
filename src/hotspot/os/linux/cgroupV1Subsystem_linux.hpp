@@ -31,29 +31,14 @@
 
 // Cgroups version 1 specific implementation
 
-class CgroupV1Controller: public CgroupController {
-  private:
-    /* mountinfo contents */
-    char *_root;
-    char *_mount_point;
-    /* Constructed subsystem directory */
-    char *_path;
-
+class CgroupV1Controller: virtual public CgroupController {
   public:
-    CgroupV1Controller(char *root, char *mountpoint) {
-      _root = os::strdup(root);
-      _mount_point = os::strdup(mountpoint);
-      _path = nullptr;
-    }
-
-    virtual void set_subsystem_path(char *cgroup_path);
-    char *subsystem_path() { return _path; }
+    CgroupV1Controller(const char *root, const char *mountpoint) : CgroupController(root, mountpoint) {}
 };
 
 class CgroupV1MemoryController: public CgroupV1Controller, public CgroupMemoryController {
 
   public:
-    bool is_hierarchical() { return _uses_mem_hierarchy; }
     void set_subsystem_path(char *cgroup_path);
     jlong read_memory_limit_in_bytes(julong upper_bound);
     jlong memory_usage_in_bytes();
@@ -69,18 +54,14 @@ class CgroupV1MemoryController: public CgroupV1Controller, public CgroupMemoryCo
     char *subsystem_path() override { return CgroupV1Controller::subsystem_path(); }
   private:
     /* Some container runtimes set limits via cgroup
-     * hierarchy. If set to true consider also memory.stat
+     * hierarchy. Consider also memory.stat
      * file if everything else seems unlimited */
-    bool _uses_mem_hierarchy;
-    jlong uses_mem_hierarchy();
-    void set_hierarchical(bool value) { _uses_mem_hierarchy = value; }
+    void check_mem_hierarchy();
     jlong read_mem_swappiness();
     jlong read_mem_swap(julong host_total_memsw);
 
   public:
-    CgroupV1MemoryController(char *root, char *mountpoint) : CgroupV1Controller(root, mountpoint) {
-      _uses_mem_hierarchy = false;
-    }
+    CgroupV1MemoryController(char *root, char *mountpoint) : CgroupController(root, mountpoint), CgroupV1Controller(root, mountpoint) {}
 
 };
 
@@ -92,9 +73,9 @@ class CgroupV1CpuController: public CgroupV1Controller, public CgroupCpuControll
     int cpu_shares();
 
   public:
-    CgroupV1CpuController(char *root, char *mountpoint) : CgroupV1Controller(root, mountpoint) {
+    CgroupV1CpuController(char *root, char *mountpoint) : CgroupController(root, mountpoint), CgroupV1Controller(root, mountpoint) {
     }
-    char *subsystem_path() override { return CgroupV1Controller::subsystem_path(); }
+    const char *subsystem_path() override { return CgroupV1Controller::subsystem_path(); }
 };
 
 class CgroupV1Subsystem: public CgroupSubsystem {
@@ -139,6 +120,7 @@ class CgroupV1Subsystem: public CgroupSubsystem {
       _cpuacct = cpuacct;
       _pids = pids;
       _memory = new CachingCgroupController<CgroupMemoryController*>(memory);
+      initialize_hierarchy();
     }
 };
 

@@ -95,6 +95,17 @@
 enum TupleValue { FIRST, SECOND };
 
 class CgroupController: public CHeapObj<mtInternal> {
+  protected:
+    void set_path(const char *cgroup_path);
+
+    /* mountinfo contents */
+    char *_root;
+    char *_mount_point;
+    char *_cgroup_path = nullptr;
+
+    /* Constructed subsystem directory */
+    char *_path = nullptr;
+
   public:
     virtual char *subsystem_path() = 0;
     bool read_number(const char* filename, julong* result);

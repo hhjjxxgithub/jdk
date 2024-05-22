@@ -74,6 +74,17 @@ int CgroupV2CpuController::cpu_shares() {
   return x;
 }
 
+static
+char* cpu_quota_val(CgroupV2Controller* ctrl) {
+  char quota[1024];
+  int err = cg_file_contents_ctrl(ctrl, "/cpu.max", "%1023s %*d", quota);
+  if (err != 0) {
+    return nullptr;
+  }
+  log_trace(os, container)("Raw value for CPU quota is: %s", quota);
+  return os::strdup(quota);
+}
+
 /* cpu_quota
  *
  * Return the number of microseconds per period

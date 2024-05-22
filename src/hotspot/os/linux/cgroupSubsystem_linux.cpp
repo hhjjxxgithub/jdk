@@ -64,8 +64,9 @@ CgroupSubsystem* CgroupSubsystemFactory::create() {
     // Construct the subsystem, free resources and return
     // Note: any index in cg_infos will do as the path is the same for
     //       all controllers.
-    CgroupV2MemoryController* memory = new CgroupV2MemoryController(cg_infos[MEMORY_IDX]._mount_path, cg_infos[MEMORY_IDX]._cgroup_path);
-    CgroupV2CpuController* cpu = new CgroupV2CpuController(cg_infos[CPU_IDX]._mount_path, cg_infos[CPU_IDX]._cgroup_path);
+    CgroupV2MemoryController* memory = new CgroupV2MemoryController(cg_infos[MEMORY_IDX]._root_mount_path, cg_infos[MEMORY_IDX]._mount_path);
+    CgroupV2CpuController* cpu = new CgroupV2CpuController(cg_infos[CPU_IDX]._root_mount_path, cg_infos[CPU_IDX]._mount_path);
+    memory->set_subsystem_path(cg_infos[MEMORY_IDX]._cgroup_path);
     log_debug(os, container)("Detected cgroups v2 unified hierarchy");
     cleanup(cg_infos);
     return new CgroupV2Subsystem(memory, cpu);
@@ -719,4 +720,93 @@ int CgroupSubsystem::cpu_period() {
 
 int CgroupSubsystem::cpu_shares() {
   return cpu_controller()->controller()->cpu_shares();
+}
+
+/*
+ * Set directory to subsystem specific files based
+ * on the contents of the mountinfo and cgroup files.
+ */
+void CgroupController::set_subsystem_path(const char *cgroup_path) {
+  os::free(_cgroup_path);
+  _cgroup_path = os::strdup(cgroup_path);
+  trim_path(0);
+}
+
+void CgroupController::set_path(const char *cgroup_path) {
+  __attribute__((unused)) bool _cgroup_path; // Do not use the member variable.
+  stringStream ss;
+  if (_root == nullptr || cgroup_path == nullptr) {
+    return;
+  }
+  if (strcmp(_root, "/") == 0) {
+    ss.print_raw(_mount_point);
+    if (strcmp(cgroup_path, "/") != 0) {
+      ss.print_raw(cgroup_path);
+    }
+    os::free(_path);
+    _path = os::strdup(ss.base());
+    return;
+  }
+  if (strcmp(_root, cgroup_path) == 0) {
+    os::free(_path);
+    _path = os::strdup(_mount_point);
+    return;
+  }
+  if (strlen(cgroup_path) == strlen(_root)) {
+    return;
+  }
+  if (strncmp(cgroup_path, _root, strlen(_root)) != 0 || cgroup_path[strlen(_root)] != '/') {
+    return;
+  }
+  ss.print_raw(_mount_point);
+  const char* cg_path_sub = cgroup_path + strlen(_root);
+  ss.print_raw(cg_path_sub);
+  os::free(_path);
+  _path = os::strdup(ss.base());
+}
+
+/* trim_path
+ *
+ * Remove specific dir_count number of trailing _cgroup_path directories
+ *
+ * return:
+ *    whether dir_count was < number of _cgroup_path directories
+ *    false is returned if the result would be cgroup root directory
+ */
+bool CgroupController::trim_path(size_t dir_count) {
+  char *cgroup_path = os::strdup(_cgroup_path);
+  assert(cgroup_path[0] == '/', "_cgroup_path should start with a slash ('/')");
+  while (dir_count--) {
+    char *s = strrchr(cgroup_path, '/');
+    assert(s, "function should have already returned");
+    *s = 0;
+    if (s == cgroup_path) {
+      os::free(cgroup_path);
+      return false;
+    }
+  }
+  set_path(cgroup_path);
+  os::free(cgroup_path);
+  return true;
+}
+
+void CgroupSubsystem::initialize_hierarchy() {
+  CgroupMemoryController *memory = memory_controller()->controller();
+
+  jlong phys_mem = os::Linux::physical_memory();
+
+  // Here it ignores any possible lower limit in parent directories.
+  // Linux kernel will correctly consider both that but this code does not.
+  for (size_t dir_count = 0; memory->trim_path(dir_count); ++dir_count) {
+    jlong memory_limit = memory->read_memory_limit_in_bytes(phys_mem);
+    jlong memory_swap_limit = memory_and_swap_limit_in_bytes();
+    if ((memory_limit != -1 && memory_limit != OSCONTAINER_ERROR)
+        || (memory_swap_limit != -1 && memory_swap_limit != OSCONTAINER_ERROR)) {
+      log_trace(os, container)("Final Memory Limit is: " JLONG_FORMAT, memory_limit);
+      log_trace(os, container)("Final Memory and Swap Limit is: " JLONG_FORMAT, memory_swap_limit);
+      return;
+    }
+  }
+
+  memory->trim_path(0);
 }
