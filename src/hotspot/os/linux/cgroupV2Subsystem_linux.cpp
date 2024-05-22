@@ -37,7 +37,7 @@
  */
 int CgroupV2CpuController::cpu_shares() {
   julong shares;
-  CONTAINER_READ_NUMBER_CHECKED(static_cast<CgroupV2Controller*>(this), "/cpu.weight", "Raw value for CPU Shares", shares);
+  CONTAINER_READ_NUMBER_CHECKED(this, "/cpu.weight", "Raw value for CPU Shares", shares);
   int shares_int = (int)shares;
   // Convert default value of 100 to no shares setup
   if (shares_int == 100) {
@@ -97,7 +97,7 @@ char* cpu_quota_val(CgroupV2Controller* ctrl) {
  */
 int CgroupV2CpuController::cpu_quota() {
   jlong quota_val;
-  bool is_ok = static_cast<CgroupV2Controller*>(this)->read_numerical_tuple_value("/cpu.max", FIRST, &quota_val);
+  bool is_ok = read_numerical_tuple_value("/cpu.max", FIRST, &quota_val);
   if (!is_ok) {
     return OSCONTAINER_ERROR;
   }
@@ -108,19 +108,19 @@ int CgroupV2CpuController::cpu_quota() {
 
 char * CgroupV2Subsystem::cpu_cpuset_cpus() {
   char* cpus = nullptr;
-  CONTAINER_READ_STRING_CHECKED(static_cast<CgroupV2Controller*>(_unified), "/cpuset.cpus", "cpuset.cpus", cpus);
+  CONTAINER_READ_STRING_CHECKED(_unified, "/cpuset.cpus", "cpuset.cpus", cpus);
   return cpus;
 }
 
 char * CgroupV2Subsystem::cpu_cpuset_memory_nodes() {
   char* mems;
-  CONTAINER_READ_STRING_CHECKED(static_cast<CgroupV2Controller*>(_unified), "/cpuset.mems", "cpuset.mems", mems);
+  CONTAINER_READ_STRING_CHECKED(_unified, "/cpuset.mems", "cpuset.mems", mems);
   return mems;
 }
 
 int CgroupV2CpuController::cpu_period() {
   jlong period_val;
-  bool is_ok = static_cast<CgroupV2Controller*>(this)->read_numerical_tuple_value("/cpu.max", SECOND, &period_val);
+  bool is_ok = read_numerical_tuple_value("/cpu.max", SECOND, &period_val);
   if (!is_ok) {
     log_trace(os, container)("CPU Period failed: %d", OSCONTAINER_ERROR);
     return OSCONTAINER_ERROR;
@@ -141,7 +141,7 @@ int CgroupV2CpuController::cpu_period() {
  */
 jlong CgroupV2MemoryController::memory_usage_in_bytes() {
   julong memusage;
-  CONTAINER_READ_NUMBER_CHECKED(static_cast<CgroupV2Controller*>(this), "/memory.current", "Memory Usage", memusage);
+  CONTAINER_READ_NUMBER_CHECKED(this, "/memory.current", "Memory Usage", memusage);
   return (jlong)memusage;
 }
 
@@ -153,7 +153,7 @@ char* mem_soft_limit_val(CgroupController* ctrl) {
 }
 
 jlong CgroupV2MemoryController::memory_soft_limit_in_bytes(julong phys_mem) {
-  char* mem_soft_limit_str = mem_soft_limit_val(static_cast<CgroupV2Controller*>(this));
+  char* mem_soft_limit_str = mem_soft_limit_val(this);
   return CgroupUtil::limit_from_str(mem_soft_limit_str);
 }
 
@@ -165,7 +165,7 @@ jlong CgroupV2MemoryController::memory_max_usage_in_bytes() {
 
 jlong CgroupV2MemoryController::rss_usage_in_bytes() {
   julong rss;
-  bool is_ok = static_cast<CgroupV2Controller*>(this)->read_numerical_key_value("/memory.stat", "anon", &rss);
+  bool is_ok = read_numerical_key_value("/memory.stat", "anon", &rss);
   if (!is_ok) {
     return OSCONTAINER_ERROR;
   }
@@ -175,7 +175,7 @@ jlong CgroupV2MemoryController::rss_usage_in_bytes() {
 
 jlong CgroupV2MemoryController::cache_usage_in_bytes() {
   julong cache;
-  bool is_ok = static_cast<CgroupV2Controller*>(this)->read_numerical_key_value("/memory.stat", "file", &cache);
+  bool is_ok = read_numerical_key_value("/memory.stat", "file", &cache);
   if (!is_ok) {
     return OSCONTAINER_ERROR;
   }
@@ -196,7 +196,7 @@ char* mem_swp_limit_val(CgroupController* ctrl) {
 // compound value we need to sum the two values. Setting a swap limit
 // without also setting a memory limit is not allowed.
 jlong CgroupV2MemoryController::memory_and_swap_limit_in_bytes(julong phys_mem, julong host_swap) {
-  char* mem_swp_limit_str = mem_swp_limit_val(static_cast<CgroupV2Controller*>(this));
+  char* mem_swp_limit_str = mem_swp_limit_val(this);
   if (mem_swp_limit_str == nullptr) {
     // Some container tests rely on this trace logging to happen.
     log_trace(os, container)("Memory and Swap Limit is: %d", OSCONTAINER_ERROR);
@@ -225,7 +225,7 @@ char* mem_swp_current_val(CgroupV2Controller* ctrl) {
 jlong CgroupV2MemoryController::memory_and_swap_usage_in_bytes(julong host_mem, julong host_swap) {
   jlong memory_usage = memory_usage_in_bytes();
   if (memory_usage >= 0) {
-      char* mem_swp_current_str = mem_swp_current_val(static_cast<CgroupV2Controller*>(this));
+      char* mem_swp_current_str = mem_swp_current_val(this);
       jlong swap_current = CgroupUtil::limit_from_str(mem_swp_current_str);
       return memory_usage + (swap_current >= 0 ? swap_current : 0);
   }
@@ -248,7 +248,7 @@ char* mem_limit_val(CgroupV2Controller* ctrl) {
  *    -1 for unlimited, OSCONTAINER_ERROR for an error
  */
 jlong CgroupV2MemoryController::read_memory_limit_in_bytes(julong phys_mem) {
-  char * mem_limit_str = mem_limit_val(static_cast<CgroupV2Controller*>(this));
+  char * mem_limit_str = mem_limit_val(this);
   jlong limit = CgroupUtil::limit_from_str(mem_limit_str);
   if (log_is_enabled(Trace, os, container)) {
     if (limit == -1) {
@@ -278,10 +278,10 @@ jlong CgroupV2MemoryController::read_memory_limit_in_bytes(julong phys_mem) {
 
 
 void CgroupV2Subsystem::print_version_specific_info(outputStream* st) {
-  char* mem_swp_current_str = mem_swp_current_val(static_cast<CgroupV2Controller*>(_unified));
+  char* mem_swp_current_str = mem_swp_current_val(_unified);
   jlong swap_current = CgroupUtil::limit_from_str(mem_swp_current_str);
 
-  char* mem_swp_limit_str = mem_swp_limit_val(static_cast<CgroupV2Controller*>(_unified));
+  char* mem_swp_limit_str = mem_swp_limit_val(_unified);
   jlong swap_limit = CgroupUtil::limit_from_str(mem_swp_limit_str);
 
   OSContainer::print_container_helper(st, swap_current, "memory_swap_current_in_bytes");
@@ -314,7 +314,7 @@ char* pids_max_val(CgroupController* ctrl) {
  *    OSCONTAINER_ERROR for not supported
  */
 jlong CgroupV2Subsystem::pids_max() {
-  char * pidsmax_str = pids_max_val(static_cast<CgroupV2Controller*>(_unified));
+  char * pidsmax_str = pids_max_val(_unified);
   return CgroupUtil::limit_from_str(pidsmax_str);
 }
 
@@ -328,6 +328,6 @@ jlong CgroupV2Subsystem::pids_max() {
  */
 jlong CgroupV2Subsystem::pids_current() {
   julong pids_current;
-  CONTAINER_READ_NUMBER_CHECKED(static_cast<CgroupV2Controller*>(_unified), "/pids.current", "Current number of tasks", pids_current);
+  CONTAINER_READ_NUMBER_CHECKED(_unified, "/pids.current", "Current number of tasks", pids_current);
   return pids_current;
 }
