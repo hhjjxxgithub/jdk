@@ -27,7 +27,7 @@
 
 #include "cgroupSubsystem_linux.hpp"
 
-class CgroupV2Controller: public CgroupController {
+class CgroupV2Controller: virtual public CgroupController {
   private:
     /* the mount path of the cgroup v2 hierarchy */
     char *_mount_path;

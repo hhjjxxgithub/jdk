@@ -153,7 +153,7 @@ class CachingCgroupController : public CHeapObj<mtInternal> {
     T controller() { return _controller; }
 };
 
-class CgroupCpuController: public CgroupController {
+class CgroupCpuController: virtual public CgroupController {
   public:
     virtual int cpu_quota() = 0;
     virtual int cpu_period() = 0;
@@ -161,7 +161,7 @@ class CgroupCpuController: public CgroupController {
     virtual char *subsystem_path() = 0;
 };
 
-class CgroupMemoryController: public CgroupController {
+class CgroupMemoryController: virtual public CgroupController {
   public:
     virtual jlong read_memory_limit_in_bytes(julong upper_bound) = 0;
     virtual jlong memory_usage_in_bytes() = 0;

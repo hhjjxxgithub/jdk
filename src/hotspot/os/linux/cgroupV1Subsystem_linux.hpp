@@ -31,7 +31,7 @@
 
 // Cgroups version 1 specific implementation
 
-class CgroupV1Controller: public CgroupController {
+class CgroupV1Controller: virtual public CgroupController {
   private:
     /* mountinfo contents */
     char *_root;
