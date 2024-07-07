@@ -66,6 +66,7 @@
 
 class VM_GC_Operation: public VM_Operation {
  protected:
+    //挂起列表偏向锁
   BasicLock     _pending_list_basic_lock; // for refs pending list notification (PLL)
   unsigned int  _gc_count_before;         // gc count before acquiring PLL
   unsigned int  _full_gc_count_before;    // full gc count before acquiring PLL

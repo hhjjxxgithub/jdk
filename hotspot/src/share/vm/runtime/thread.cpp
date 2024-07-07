@@ -2286,10 +2286,12 @@ void JavaThread::java_suspend() {
 //       suspension for external suspend requests and should only be used
 //       to complete an external suspend request.
 //
+// java线程发现有存在挂起请求，那么其会自我挂起
 int JavaThread::java_suspend_self() {
   int ret = 0;
 
   // we are in the process of exiting so don't suspend
+  //线程已经中止
   if (is_exiting()) {
      clear_external_suspend();
      return ret;
@@ -2299,6 +2301,7 @@ int JavaThread::java_suspend_self() {
     (is_Java_thread() && !((JavaThread*)this)->has_last_Java_frame()),
     "must have walkable stack");
 
+  //获取 srlock
   MutexLockerEx ml(SR_lock(), Mutex::_no_safepoint_check_flag);
 
   assert(!this->is_ext_suspended(),
@@ -2321,12 +2324,16 @@ int JavaThread::java_suspend_self() {
   // it. This would be a "bad thing (TM)" and cause the stack walker
   // to crash. We stay self-suspended until there are no more pending
   // external suspend requests.
+  //存在挂起请求
   while (is_external_suspend()) {
     ret++;
+    //cas 挂起自己
     this->set_ext_suspended();
 
     // _ext_suspended flag is cleared by java_resume()
+    //挂起成功
     while (is_ext_suspended()) {
+        //等待挂起请求完成通知
       this->SR_lock()->wait(Mutex::_no_safepoint_check_flag);
     }
   }
@@ -2357,10 +2364,13 @@ void JavaThread::verify_not_published() {
 // Async exception ISN'T checked.
 // Note only the ThreadInVMfromNative transition can call this function
 // directly and when thread state is _thread_in_native_trans
+// 当线程从native返回 vm或者java时，会检查线程是否需要有挂起请求、或者是否进入 safe point
+// 如果是的话，则线程需要挂起自己
 void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread) {
   assert(thread->thread_state() == _thread_in_native_trans, "wrong state");
 
   JavaThread *curJT = JavaThread::current();
+  //是否有挂起请求
   bool do_self_suspend = thread->is_external_suspend();
 
   assert(!curJT->has_last_Java_frame() || curJT->frame_anchor()->walkable(), "Unwalkable stack in native->vm transition");
@@ -2369,6 +2379,7 @@ void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread
   // thread is not the current thread. In older versions of jdbx, jdbx
   // threads could call into the VM with another thread's JNIEnv so we
   // can be here operating on behalf of a suspended thread (4432884).
+  //有线程挂起请求，且当前线程是目标线程
   if (do_self_suspend && (!AllowJNIEnvProxy || curJT == thread)) {
     JavaThreadState state = thread->thread_state();
 
@@ -2388,8 +2399,11 @@ void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread
     // see the _thread_blocked state. We must check for safepoint
     // after restoring the state and make sure we won't leave while a safepoint
     // is in progress.
+    //设置线程状态为阻塞，提前进入 safe point状态
     thread->set_thread_state(_thread_blocked);
+    //自我挂起
     thread->java_suspend_self();
+    //恢复线程状态
     thread->set_thread_state(state);
     // Make sure new state is seen by VM thread
     if (os::is_MP()) {
@@ -2403,12 +2417,15 @@ void JavaThread::check_safepoint_and_suspend_for_native_trans(JavaThread *thread
     }
   }
 
+  //在safe point
   if (SafepointSynchronize::do_call_back()) {
     // If we are safepointing, then block the caller which may not be
     // the same as the target thread (see above).
+    //线程进入 safe point状态，阻塞
     SafepointSynchronize::block(curJT);
   }
 
+  //是否取消挂起
   if (thread->is_deopt_suspend()) {
     thread->clear_deopt_suspend();
     RegisterMap map(thread, false);

@@ -56,6 +56,7 @@ class CMSIsAliveClosure;
 class PSPromotionManager;
 class ParCompactionManager;
 
+//java对象头，包含mark，类元信息
 class oopDesc {
   friend class VMStructs;
  private:

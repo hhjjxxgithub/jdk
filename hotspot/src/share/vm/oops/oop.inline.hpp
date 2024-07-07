@@ -143,6 +143,7 @@ inline oop oopDesc::list_ptr_from_klass() {
   }
 }
 
+//初始换对象头，获取对应class的初始化头部
 inline void   oopDesc::init_mark()                 { set_mark(markOopDesc::prototype_for_object(this)); }
 
 inline bool oopDesc::is_a(Klass* k)        const { return klass()->is_subtype_of(k); }
@@ -602,6 +603,7 @@ inline bool oopDesc::is_unlocked_oop() const {
 }
 #endif // PRODUCT
 
+//迭代对象的所有非静态字段值，并标记它们
 inline void oopDesc::follow_contents(void) {
   assert (is_gc_marked(), "should be marked");
   klass()->oop_follow_contents(this);
@@ -616,6 +618,7 @@ inline bool oopDesc::is_forwarded() const {
 }
 
 // Used by scavengers
+//转发对象，将对象头中设置目标对象的地址
 inline void oopDesc::forward_to(oop p) {
   assert(check_obj_alignment(p),
          "forwarding to something not aligned");

@@ -196,8 +196,11 @@ class ThreadSafepointState: public CHeapObj<mtInternal> {
   // to a safepoint.  After SafepointSynchronize::end(), they are reset to
   // _running.
   enum suspend_type {
+      //线程没检查到 safe point
     _running                =  0, // Thread state not yet determined (i.e., not at a safepoint yet)
+    //线程检查到 safe point，并且进入阻塞
     _at_safepoint           =  1, // Thread at a safepoint (f.ex., when blocked on a lock)
+    //线程在解释执行或vm状态 检查到了 safe point，排队等待safe point锁，并且回调通知，最后进入阻塞状态
     _call_back              =  2  // Keep executing and wait for callback (if thread is in interpreted or vm)
   };
  private:

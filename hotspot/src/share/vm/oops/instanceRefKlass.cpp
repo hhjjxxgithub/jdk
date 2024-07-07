@@ -513,6 +513,7 @@ bool InstanceRefKlass::owns_pending_list_lock(JavaThread* thread) {
   return ObjectSynchronizer::current_thread_holds_lock(thread, h_lock);
 }
 
+//获取 Reference.lock 的对象锁，进入同步块
 void InstanceRefKlass::acquire_pending_list_lock(BasicLock *pending_list_basic_lock) {
   // we may enter this with pending exception set
   PRESERVE_EXCEPTION_MARK;  // exceptions are never thrown, needed for TRAPS argument
@@ -523,6 +524,7 @@ void InstanceRefKlass::acquire_pending_list_lock(BasicLock *pending_list_basic_l
   HandleMark hm;
 
   Handle h_lock(THREAD, java_lang_ref_Reference::pending_list_lock());
+  //进入同步块
   ObjectSynchronizer::fast_enter(h_lock, pending_list_basic_lock, false, THREAD);
   assert(ObjectSynchronizer::current_thread_holds_lock(
            JavaThread::current(), h_lock),

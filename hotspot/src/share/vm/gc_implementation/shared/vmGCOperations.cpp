@@ -85,6 +85,8 @@ void VM_GC_Operation::release_and_notify_pending_list_lock() {
 // In case a GC locker is active and the need for a GC is already signalled,
 // we want to skip this GC attempt altogether, without doing a futile
 // safepoint operation.
+//可能多个线程同时分配失败，那么就可能有多个gc请求，而系统只需要存在一个请求就行
+//是否跳过，若 gc 次数变更 或者 gc locker锁定，则跳过
 bool VM_GC_Operation::skip_operation() const {
   bool skip = (_gc_count_before != Universe::heap()->total_collections());
   if (_full && skip) {
@@ -98,17 +100,21 @@ bool VM_GC_Operation::skip_operation() const {
   return skip;
 }
 
+//gc 操作前置，返回 false 不需要gc
 bool VM_GC_Operation::doit_prologue() {
   assert(Thread::current()->is_Java_thread(), "just checking");
   assert(((_gc_cause != GCCause::_no_gc) &&
           (_gc_cause != GCCause::_no_cause_specified)), "Illegal GCCause");
 
+  //获取 Reference.lock 的对象锁
   acquire_pending_list_lock();
   // If the GC count has changed someone beat us to the collection
   // Get the Heap_lock after the pending_list_lock.
+  //获取堆锁
   Heap_lock->lock();
 
   // Check invocations
+  //检查是否需要跳过， gc次数变更 或 gc locker 锁定
   if (skip_operation()) {
     // skip collection
     Heap_lock->unlock();

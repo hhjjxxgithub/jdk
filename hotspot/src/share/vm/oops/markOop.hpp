@@ -100,19 +100,20 @@
 class BasicLock;
 class ObjectMonitor;
 class JavaThread;
-
+//java 对象头 mark
 class markOopDesc: public oopDesc {
  private:
   // Conversion
+  //返回 指针值
   uintptr_t value() const { return (uintptr_t) this; }
 
  public:
   // Constants
-  enum { age_bits                 = 4,
-         lock_bits                = 2,
-         biased_lock_bits         = 1,
+  enum { age_bits                 = 4,//年龄
+         lock_bits                = 2,//锁标记
+         biased_lock_bits         = 1,//偏向锁标记
          max_hash_bits            = BitsPerWord - age_bits - lock_bits - biased_lock_bits,
-         hash_bits                = max_hash_bits > 31 ? 31 : max_hash_bits,
+         hash_bits                = max_hash_bits > 31 ? 31 : max_hash_bits, //hashcode
          cms_bits                 = LP64_ONLY(1) NOT_LP64(0),
          epoch_bits               = 2
   };
@@ -187,6 +188,7 @@ class markOopDesc: public oopDesc {
   }
   // Indicates that the mark has the bias bit set but that it has not
   // yet been biased toward a particular thread
+  //有偏向标识，但没有偏向人
   bool is_biased_anonymously() const {
     return (has_bias_pattern() && (biased_locker() == NULL));
   }
@@ -318,6 +320,7 @@ class markOopDesc: public oopDesc {
     intptr_t tmp = (intptr_t) monitor;
     return (markOop) (tmp | monitor_value);
   }
+  //设置偏向锁
   static markOop encode(JavaThread* thread, uint age, int bias_epoch) {
     intptr_t tmp = (intptr_t) thread;
     assert(UseBiasedLocking && ((tmp & (epoch_mask_in_place | age_mask_in_place | biased_lock_mask_in_place)) == 0), "misaligned JavaThread pointer");
@@ -327,10 +330,13 @@ class markOopDesc: public oopDesc {
   }
 
   // used to encode pointers during GC
+  //锁标记位，最后两位为00
   markOop clear_lock_bits() { return markOop(value() & ~lock_mask_in_place); }
 
   // age operations
+  //设置为标记，最后两位为11
   markOop set_marked()   { return markOop((value() & ~lock_mask_in_place) | marked_value); }
+  //设置为未标记，仍然有锁，最后两位为01
   markOop set_unmarked() { return markOop((value() & ~lock_mask_in_place) | unlocked_value); }
 
   uint    age()               const { return mask_bits(value() >> age_shift, age_mask); }
@@ -361,9 +367,11 @@ class markOopDesc: public oopDesc {
   void print_on(outputStream* st) const;
 
   // Prepare address of oop for placement into mark
+  //将对象地址放入 value 中
   inline static markOop encode_pointer_as_mark(void* p) { return markOop(p)->set_marked(); }
 
   // Recover address of oop from encoded form used in mark
+  //有偏向锁不操作，没偏向锁则从value中取出对象地址
   inline void* decode_pointer() { if (UseBiasedLocking && has_bias_pattern()) return NULL; return clear_lock_bits(); }
 
   // These markOops indicate cms free chunk blocks and not objects.

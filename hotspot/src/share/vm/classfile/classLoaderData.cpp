@@ -101,6 +101,7 @@ bool ClassLoaderData::claim() {
   return (int) Atomic::cmpxchg(1, &_claimed, 0) == 0;
 }
 
+//标记 类对象相关对象
 void ClassLoaderData::oops_do(OopClosure* f, KlassClosure* klass_closure, bool must_claim) {
   if (must_claim && !claim()) {
     return;

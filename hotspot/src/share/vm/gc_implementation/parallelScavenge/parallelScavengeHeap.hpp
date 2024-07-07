@@ -43,21 +43,27 @@ class CollectorPolicy;
 class PSAdaptiveSizePolicy;
 class PSHeapSummary;
 
+//并行收集的堆
 class ParallelScavengeHeap : public CollectedHeap {
   friend class VMStructs;
  private:
+    //新生代
   static PSYoungGen* _young_gen;
+    //老年代
   static PSOldGen*   _old_gen;
 
   // Sizing policy for entire heap
+  //自适应策略
   static PSAdaptiveSizePolicy* _size_policy;
   static PSGCAdaptivePolicyCounters*   _gc_policy_counters;
 
   static ParallelScavengeHeap* _psh;
 
+  //内存对齐
   size_t _young_gen_alignment;
   size_t _old_gen_alignment;
 
+  //收集策略
   GenerationSizer* _collector_policy;
 
   inline size_t set_alignment(size_t& var, size_t val);

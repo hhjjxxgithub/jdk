@@ -127,6 +127,7 @@ class PSScavenge: AllStatic {
   static void initialize();
 
   // Scavenge entry point.  This may invoke a full gc; return true if so.
+  //执行 gc， 如果是major gc 则返回true
   static bool invoke();
   // Return true if a collection was done; false otherwise.
   static bool invoke_no_policy();

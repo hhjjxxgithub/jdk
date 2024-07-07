@@ -33,13 +33,17 @@
 #include "gc_implementation/parallelScavenge/psParallelCompact.hpp"
 #endif // INCLUDE_ALL_GCS
 
+//标记对象，并保存原先的对象头 mark
 inline void MarkSweep::mark_object(oop obj) {
   // some marks may contain information we need to preserve so we store them away
   // and overwrite the mark.  We'll restore it at the end of markSweep.
   markOop mark = obj->mark();
+  //先获取初始化头部，再设置标记
   obj->set_mark(markOopDesc::prototype()->set_marked());
 
+  //如果有偏向锁则保存对象头
   if (mark->must_be_preserved(obj)) {
+      //保存原先对象头 mark
     preserve_mark(obj, mark);
   }
 }
@@ -58,13 +62,16 @@ template <class T> inline void MarkSweep::follow_root(T* p) {
   follow_stack();
 }
 
+//标记对象，并放入栈中
 template <class T> inline void MarkSweep::mark_and_push(T* p) {
 //  assert(Universe::heap()->is_in_reserved(p), "should be in object space");
   T heap_oop = oopDesc::load_heap_oop(p);
   if (!oopDesc::is_null(heap_oop)) {
     oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
     if (!obj->mark()->is_marked()) {
+        //标记对象，并保存对象头mark
       mark_object(obj);
+      //放入栈
       _marking_stack.push(obj);
     }
   }
@@ -76,10 +83,12 @@ void MarkSweep::push_objarray(oop obj, size_t index) {
   _objarray_stack.push(task);
 }
 
+//获取头部记录对象，并将该对象指向指针
 template <class T> inline void MarkSweep::adjust_pointer(T* p) {
   T heap_oop = oopDesc::load_heap_oop(p);
   if (!oopDesc::is_null(heap_oop)) {
     oop obj     = oopDesc::decode_heap_oop_not_null(heap_oop);
+    //获取头部的对象指针
     oop new_obj = oop(obj->mark()->decode_pointer());
     assert(new_obj != NULL ||                         // is forwarding ptr?
            obj->mark() == markOopDesc::prototype() || // not gc marked?
@@ -89,6 +98,7 @@ template <class T> inline void MarkSweep::adjust_pointer(T* p) {
     if (new_obj != NULL) {
       assert(Universe::heap()->is_in_reserved(new_obj),
              "should be in object space");
+      //替换 p指针内容为新的对象
       oopDesc::encode_store_heap_oop_not_null(p, new_obj);
     }
   }

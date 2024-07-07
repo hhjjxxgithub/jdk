@@ -45,7 +45,7 @@
 
 // The direct lock/unlock calls do not force a collection if an unlock
 // decrements the count to zero. Avoid calling these if at all possible.
-
+//gc锁
 class GC_locker: public AllStatic {
  private:
   // The _jni_lock_count keeps track of the number of threads that are
@@ -54,10 +54,11 @@ class GC_locker: public AllStatic {
   // safepointing and decremented during the slow path of GC_locker
   // unlocking.
   static volatile jint _jni_lock_count;  // number of jni active instances.
-
+  //持有锁数量
   static volatile jint _lock_count;      // number of other active instances
+  //是否需要gc
   static volatile bool _needs_gc;        // heap is filling, we need a GC
-                                         // note: bool is typedef'd as jint
+  //是否正在gc                                       // note: bool is typedef'd as jint
   static volatile bool _doing_gc;        // unlock_critical() is doing a GC
 
 #ifdef ASSERT
@@ -94,6 +95,7 @@ class GC_locker: public AllStatic {
   static bool needs_gc()       { return _needs_gc;                        }
 
   // Shorthand
+  //需要gc，并且锁被持有
   static bool is_active_and_needs_gc() {
     // Use is_active_internal since _needs_gc can change from true to
     // false outside of a safepoint, triggering the assert in
@@ -130,6 +132,7 @@ class GC_locker: public AllStatic {
   // JNICritical_lock, so the caller may not safely assert upon
   // return from this method that "!needs_gc()" since that is
   // not a stable predicate.
+  //等待到不需要gc，退出临界区
   static void stall_until_clear();
 
   // Non-structured GC locking: currently needed for JNI. Use with care!

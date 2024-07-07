@@ -247,7 +247,7 @@ class PSAdaptiveSizePolicy : public AdaptiveSizePolicy {
 
   // Accessors
   // NEEDS_CLEANUP   should use sizes.hpp
-
+ //计算老年代晋升区大小， 晋升区加权平均大小 + 需要的晋升区大小
   size_t calculated_old_free_size_in_bytes() const {
     return (size_t)(_promo_size + avg_promoted()->padded_average());
   }

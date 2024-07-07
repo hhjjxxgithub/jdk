@@ -61,6 +61,7 @@ AdaptiveSizePolicy::AdaptiveSizePolicy(size_t init_eden_size,
     "No opportunity to clear SoftReferences before GC overhead limit");
   _avg_minor_pause    =
     new AdaptivePaddedAverage(AdaptiveTimeWeight, PausePadding);
+  // 25% 的加权平均
   _avg_minor_interval = new AdaptiveWeightedAverage(AdaptiveTimeWeight);
   _avg_minor_gc_cost  = new AdaptiveWeightedAverage(AdaptiveTimeWeight);
   _avg_major_gc_cost  = new AdaptiveWeightedAverage(AdaptiveTimeWeight);
@@ -68,7 +69,7 @@ AdaptiveSizePolicy::AdaptiveSizePolicy(size_t init_eden_size,
   _avg_young_live     = new AdaptiveWeightedAverage(AdaptiveSizePolicyWeight);
   _avg_old_live       = new AdaptiveWeightedAverage(AdaptiveSizePolicyWeight);
   _avg_eden_live      = new AdaptiveWeightedAverage(AdaptiveSizePolicyWeight);
-
+  // 方差平均
   _avg_survived       = new AdaptivePaddedAverage(AdaptiveSizePolicyWeight,
                                                   SurvivorPadding);
   _avg_pretenured     = new AdaptivePaddedNoZeroDevAverage(
@@ -484,6 +485,7 @@ void AdaptiveSizePolicy::check_gc_overhead_limit(
     if (gc_cost() > gc_cost_limit &&
       free_in_old_gen < (size_t) mem_free_old_limit &&
       free_in_eden < (size_t) mem_free_eden_limit) {
+        // gc平均时间大于 限制时间，且 堆空间小于限制值，则认为 过载
       // Collections, on average, are taking too much time, and
       //      gc_cost() > gc_cost_limit
       // we have too little space available after a full gc.
@@ -506,6 +508,7 @@ void AdaptiveSizePolicy::check_gc_overhead_limit(
       // At this point the GC overhead limit is being exceeded.
       inc_gc_overhead_limit_count();
       if (UseGCOverheadLimit) {
+          // 如果过载次数 大于 阈值
         if (gc_overhead_limit_count() >=
             AdaptiveSizePolicyGCTimeLimitThreshold){
           // All conditions have been met for throwing an out-of-memory
@@ -522,6 +525,7 @@ void AdaptiveSizePolicy::check_gc_overhead_limit(
           // The clearing will be done on the next GC.
           bool near_limit = gc_overhead_limit_near();
           if (near_limit) {
+              //临近阈值，则清空软引用
             collector_policy->set_should_clear_all_soft_refs(true);
             if (PrintGCDetails && Verbose) {
               gclog_or_tty->print_cr("  Nearing GC overhead limit, "

@@ -27,6 +27,7 @@
 
 // Catch-all file for utility classes
 
+//计算加权平均
 float AdaptiveWeightedAverage::compute_adaptive_average(float new_sample,
                                                         float average) {
   // We smooth the samples by not using weight() directly until we've
@@ -42,15 +43,18 @@ float AdaptiveWeightedAverage::compute_adaptive_average(float new_sample,
 
   unsigned adaptive_weight = (MAX2(weight(), count_weight));
 
+  //平均值 = 100-权重 * 平均值/ 100 + 权重 * 采样值 / 100
   float new_avg = exp_avg(average, new_sample, adaptive_weight);
 
   return new_avg;
 }
-
+//采样统计
 void AdaptiveWeightedAverage::sample(float new_sample) {
-  increment_count();
+  //计数
+    increment_count();
 
   // Compute the new weighted average
+  //计算新的加权平均
   float new_avg = compute_adaptive_average(new_sample, average());
   set_average(new_avg);
   _last_sample = new_sample;
@@ -85,10 +89,13 @@ void AdaptivePaddedAverage::sample(float new_sample) {
   AdaptiveWeightedAverage::sample(new_sample);
 
   // Now update the deviation and the padded average.
+  //新的加权平均
   float new_avg = average();
+  //新的偏差 = （新的平均数 - 新的采样值） 和 旧的偏差 计算加权平均
   float new_dev = compute_adaptive_average(fabsd(new_sample - new_avg),
                                            deviation());
   set_deviation(new_dev);
+  //偏差平均 = 新的平均 + padding * 新的偏差
   set_padded_average(new_avg + padding() * new_dev);
   _last_sample = new_sample;
 }

@@ -60,11 +60,14 @@ void GC_locker::verify_critical_count() {
   }
 }
 #endif
-
+//gc 前检查
 bool GC_locker::check_active_before_gc() {
+    //不能在 safe point
   assert(SafepointSynchronize::is_at_safepoint(), "only read at safepoint");
+  //有线程在临近区，且还没需要gc
   if (is_active() && !_needs_gc) {
     verify_critical_count();
+    //需要gc
     _needs_gc = true;
     if (PrintJNIGCStalls && PrintGCDetails) {
       ResourceMark rm; // JavaThread::name() allocates to convert to UTF8
@@ -76,8 +79,10 @@ bool GC_locker::check_active_before_gc() {
   return is_active();
 }
 
+//等待gc结束
 void GC_locker::stall_until_clear() {
   assert(!JavaThread::current()->in_critical(), "Would deadlock");
+  //获取锁，可能一直在等待锁
   MutexLocker   ml(JNICritical_lock);
 
   if (needs_gc()) {
@@ -89,11 +94,13 @@ void GC_locker::stall_until_clear() {
   }
 
   // Wait for _needs_gc  to be cleared
+  //需要gc ，则等待
   while (needs_gc()) {
     JNICritical_lock->wait();
   }
 }
 
+//获取 jni锁，进入临界区
 void GC_locker::jni_lock(JavaThread* thread) {
   assert(!thread->in_critical(), "shouldn't currently be in a critical region");
   MutexLocker mu(JNICritical_lock);
@@ -102,20 +109,24 @@ void GC_locker::jni_lock(JavaThread* thread) {
   // We check that at least one thread is in a critical region before
   // blocking because blocked threads are woken up by a thread exiting
   // a JNI critical region.
+  //如果正在 gc ，则等待结束
   while ((needs_gc() && is_jni_active()) || _doing_gc) {
     JNICritical_lock->wait();
   }
+  //进入临界区
   thread->enter_critical();
   _jni_lock_count++;
   increment_debug_jni_lock_count();
 }
 
+//解锁 jni锁，退出临界区
 void GC_locker::jni_unlock(JavaThread* thread) {
   assert(thread->in_last_critical(), "should be exiting critical region");
   MutexLocker mu(JNICritical_lock);
   _jni_lock_count--;
   decrement_debug_jni_lock_count();
   thread->exit_critical();
+  //需要gc，并且自身是最后一个 解锁
   if (needs_gc() && !is_jni_active()) {
     // We're the last thread out. Cause a GC to occur.
     // GC will also check is_active, so this check is not
@@ -132,6 +143,7 @@ void GC_locker::jni_unlock(JavaThread* thread) {
           gclog_or_tty->print_cr("%.3f: Thread \"%s\" is performing GC after exiting critical section, %d locked",
                                  gclog_or_tty->time_stamp().seconds(), Thread::current()->name(), _jni_lock_count);
         }
+        //发起gc
         Universe::heap()->collect(GCCause::_gc_locker);
       }
       _doing_gc = false;

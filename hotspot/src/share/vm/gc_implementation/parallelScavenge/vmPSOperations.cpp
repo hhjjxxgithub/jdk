@@ -39,7 +39,7 @@ VM_ParallelGCFailedAllocation::VM_ParallelGCFailedAllocation(size_t size,
   _result(NULL)
 {
 }
-
+//内存分配失败 操作
 void VM_ParallelGCFailedAllocation::doit() {
   SvcGCMarker sgcm(SvcGCMarker::MINOR);
 
@@ -47,8 +47,10 @@ void VM_ParallelGCFailedAllocation::doit() {
   assert(heap->kind() == CollectedHeap::ParallelScavengeHeap, "must be a ParallelScavengeHeap");
 
   GCCauseSetter gccs(heap, _gc_cause);
+  //执行分配失败策略操作
   _result = heap->failed_mem_allocate(_size);
 
+  //分配失败策略后，仍然分配失败，并且 gc locker 锁定，需要gc
   if (_result == NULL && GC_locker::is_active_and_needs_gc()) {
     set_gc_locked();
   }

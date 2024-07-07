@@ -86,6 +86,7 @@ void PSPromotionManager::pre_scavenge() {
   }
 }
 
+//gc后置
 bool PSPromotionManager::post_scavenge(YoungGCTracer& gc_tracer) {
   bool promotion_failure_occurred = false;
 
@@ -94,9 +95,11 @@ bool PSPromotionManager::post_scavenge(YoungGCTracer& gc_tracer) {
     PSPromotionManager* manager = manager_array(i);
     assert(manager->claimed_stack_depth()->is_empty(), "should be empty");
     if (manager->_promotion_failed_info.has_failed()) {
+        //存在晋升失败，说明 空间不足
       gc_tracer.report_promotion_failed(manager->_promotion_failed_info);
       promotion_failure_occurred = true;
     }
+    //刷 plab
     manager->flush_labs();
   }
   return promotion_failure_occurred;
@@ -236,6 +239,7 @@ void PSPromotionManager::drain_stacks_depth(bool totally_drain) {
   assert(tq->overflow_empty(), "Sanity");
 }
 
+// 刷plab
 void PSPromotionManager::flush_labs() {
   assert(stacks_empty(), "Attempt to flush lab with live stack");
 
@@ -251,6 +255,7 @@ void PSPromotionManager::flush_labs() {
 
   // Let PSScavenge know if we overflowed
   if (_young_gen_is_full) {
+      //to 区已经满了
     PSScavenge::set_survivor_overflow(true);
   }
 }

@@ -102,6 +102,7 @@ void PSMarkSweep::invoke(bool maximum_heap_compaction) {
 
 // This method contains no policy. You should probably
 // be calling invoke() instead.
+//major gc ，标记整理算法
 bool PSMarkSweep::invoke_no_policy(bool clear_all_softrefs) {
   assert(SafepointSynchronize::is_at_safepoint(), "must be at a safepoint");
   assert(ref_processor() != NULL, "Sanity");
@@ -121,6 +122,7 @@ bool PSMarkSweep::invoke_no_policy(bool clear_all_softrefs) {
 
   // The scope of casr should end after code that can change
   // CollectorPolicy::_should_clear_all_soft_refs.
+  //清除软引用
   ClearedAllSoftRefs casr(clear_all_softrefs, heap->collector_policy());
 
   PSYoungGen* young_gen = heap->young_gen();
@@ -178,6 +180,7 @@ bool PSMarkSweep::invoke_no_policy(bool clear_all_softrefs) {
 
     CodeCache::gc_prologue();
     Threads::gc_prologue();
+    //保留偏向锁 头mark
     BiasedLocking::preserve_marks();
 
     // Capture heap size before collection for printing.
@@ -197,20 +200,26 @@ bool PSMarkSweep::invoke_no_policy(bool clear_all_softrefs) {
     ref_processor()->enable_discovery(true /*verify_disabled*/, true /*verify_no_refs*/);
     ref_processor()->setup_policy(clear_all_softrefs);
 
+    //从 gc root开始标记对象，并卸载无用的 字符串、类对象、符号引用、字典表
     mark_sweep_phase1(clear_all_softrefs);
 
+    //预整理对象，将需要转发的存活对象头部 设置转发位置
     mark_sweep_phase2();
 
     // Don't add any more derived pointers during phase3
     COMPILER2_PRESENT(assert(DerivedPointerTable::is_active(), "Sanity"));
     COMPILER2_PRESENT(DerivedPointerTable::set_active(false));
 
+    //调整对象指针，调整为转发位置或者不变
     mark_sweep_phase3();
 
+    //整理对象，将区域存活对象移动到端界
     mark_sweep_phase4();
 
+    //恢复对象头
     restore_marks();
 
+    //释放栈
     deallocate_stacks();
 
     if (ZapUnusedHeapArea) {
@@ -247,6 +256,7 @@ bool PSMarkSweep::invoke_no_policy(bool clear_all_softrefs) {
     ClassLoaderDataGraph::purge();
     MetaspaceAux::verify_metrics();
 
+    //恢复偏向锁
     BiasedLocking::restore_marks();
     Threads::gc_epilogue();
     CodeCache::gc_epilogue();
@@ -298,6 +308,7 @@ bool PSMarkSweep::invoke_no_policy(bool clear_all_softrefs) {
         // Used for diagnostics
         size_policy->clear_generation_free_space_flags();
 
+        //计算各个区需要的大小，包括eden区大小，老年代需要的晋升区大小
         size_policy->compute_generations_free_space(young_live,
                                                     eden_live,
                                                     old_live,
@@ -306,6 +317,7 @@ bool PSMarkSweep::invoke_no_policy(bool clear_all_softrefs) {
                                                     max_eden_size,
                                                     true /* full gc*/);
 
+        //检查gc瓶颈次数限制
         size_policy->check_gc_overhead_limit(young_live,
                                              eden_live,
                                              max_old_gen_size,
@@ -313,9 +325,10 @@ bool PSMarkSweep::invoke_no_policy(bool clear_all_softrefs) {
                                              true /* full gc*/,
                                              gc_cause,
                                              heap->collector_policy());
-
+        //衰减补充比例
         size_policy->decay_supplemental_growth(true /* full gc*/);
 
+        //重新设置老年代大小
         heap->resize_old_gen(size_policy->calculated_old_free_size_in_bytes());
 
         // Don't resize the young generation at an major collection.  A
@@ -509,8 +522,10 @@ void PSMarkSweep::deallocate_stacks() {
   _objarray_stack.clear(true);
 }
 
+//通过可达性分析，标记存活对象，卸载无用元数据
 void PSMarkSweep::mark_sweep_phase1(bool clear_all_softrefs) {
   // Recursively traverse all live objects and mark them
+  //递归查询所有存活对象，并标记它们
   GCTraceTime tm("phase 1", PrintGCDetails && Verbose, true, _gc_timer);
   trace(" 1");
 
@@ -523,6 +538,7 @@ void PSMarkSweep::mark_sweep_phase1(bool clear_all_softrefs) {
   // General strong roots.
   {
     ParallelScavengeHeap::ParStrongRootsScope psrs;
+    //标记所有gc root对象，及可达对象，并将其放入栈中
     Universe::oops_do(mark_and_push_closure());
     JNIHandles::oops_do(mark_and_push_closure());   // Global (strong) JNI handles
     CLDToOopClosure mark_and_push_from_cld(mark_and_push_closure());
@@ -539,6 +555,8 @@ void PSMarkSweep::mark_sweep_phase1(bool clear_all_softrefs) {
   }
 
   // Flush marking stack.
+  //循环标记对象的相关对象（该对象的字段对象 和 该对象的类对象字段对象），直到标记栈为空
+  //可达性分析，从这里向下搜索
   follow_stack();
 
   // Process reference objects found during marking
@@ -554,18 +572,23 @@ void PSMarkSweep::mark_sweep_phase1(bool clear_all_softrefs) {
   assert(_marking_stack.is_empty(), "Marking should have completed");
 
   // Unload classes and purge the SystemDictionary.
+  //卸载不要的类，清除系统字典
   bool purged_class = SystemDictionary::do_unloading(is_alive_closure());
 
   // Unload nmethods.
+  //清除不要的方法
   CodeCache::do_unloading(is_alive_closure(), purged_class);
 
   // Prune dead klasses from subklass/sibling/implementor lists.
+  //清除不要的类的 软引用 列表
   Klass::clean_weak_klass_links(is_alive_closure());
 
   // Delete entries for dead interned strings.
+  //清除不用的字符串
   StringTable::unlink(is_alive_closure());
 
   // Clean up unreferenced symbols in symbol table.
+  //清除不用的符号表
   SymbolTable::unlink();
   _gc_tracer->report_object_count_after_gc(is_alive_closure());
 }
@@ -576,7 +599,7 @@ void PSMarkSweep::mark_sweep_phase2() {
   trace("2");
 
   // Now all live objects are marked, compute the new object addresses.
-
+    //现在所有的存活对象已经被标记，开始计算新的对象地址
   // It is not required that we traverse spaces in the same order in
   // phase2, phase3 and phase4, but the ValidateMarkSweep live oops
   // tracking expects us to do so. See comment under phase4.
@@ -586,10 +609,13 @@ void PSMarkSweep::mark_sweep_phase2() {
 
   PSOldGen* old_gen = heap->old_gen();
 
+  //准备标记整理
   // Begin compacting into the old gen
   PSMarkSweepDecorator::set_destination_decorator_tenured();
 
   // This will also compact the young gen spaces.
+  //整理算法，将存活对象向区域头部方向移动
+  //如果对象跨区域，则整理多个区域
   old_gen->precompact();
 }
 
@@ -600,6 +626,7 @@ public:
 };
 static PSAlwaysTrueClosure always_true;
 
+//变更需要转发的对象的指针到新的 转发位置，该位置在 preCompact 阶段设置在对象头部
 void PSMarkSweep::mark_sweep_phase3() {
   // Adjust the pointers to reflect the new locations
   GCTraceTime tm("phase 3", PrintGCDetails && Verbose, true, _gc_timer);
@@ -614,6 +641,7 @@ void PSMarkSweep::mark_sweep_phase3() {
   // Need to clear claim bits before the tracing starts.
   ClassLoaderDataGraph::clear_claimed_marks();
 
+  //从gc root 将已标记设置为锁定状态
   // General strong roots.
   Universe::oops_do(adjust_pointer_closure());
   JNIHandles::oops_do(adjust_pointer_closure());   // Global (strong) JNI handles
@@ -637,12 +665,16 @@ void PSMarkSweep::mark_sweep_phase3() {
   ref_processor()->weak_oops_do(adjust_pointer_closure());
   PSScavenge::reference_processor()->weak_oops_do(adjust_pointer_closure());
 
+  //调整原先保存的对象头mark
   adjust_marks();
 
+  //调整新生代对象
   young_gen->adjust_pointers();
+  //调整老年代对象
   old_gen->adjust_pointers();
 }
 
+//整理对象，将区域存活对象移动到端界
 void PSMarkSweep::mark_sweep_phase4() {
   EventMark m("4 compact heap");
   GCTraceTime tm("phase 4", PrintGCDetails && Verbose, true, _gc_timer);

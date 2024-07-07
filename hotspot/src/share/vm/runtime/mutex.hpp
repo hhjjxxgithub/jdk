@@ -198,6 +198,7 @@ class Monitor : public CHeapObj<mtInternal> {
 
   // Lock without safepoint check. Should ONLY be used by safepoint code and other code
   // that is guaranteed not to block while running inside the VM.
+  //无需检查safepoint，只要当前允许在 safepoint 期间
   void lock_without_safepoint_check();
   void lock_without_safepoint_check (Thread * Self) ;
 

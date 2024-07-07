@@ -112,6 +112,7 @@ class FieldPrinter: public FieldClosure {
 
 // ValueObjs embedded in klass. Describes where oops are located in instances of
 // this klass.
+//对象图，描述了实例对象中的对象分布位置，即字段的位置
 class OopMapBlock VALUE_OBJ_CLASS_SPEC {
  public:
   // Byte offset of the first oop mapped by this block.

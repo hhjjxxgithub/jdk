@@ -123,6 +123,7 @@
   There really shouldn't be any handles remaining to trash but this is cheap
   in relation to a safepoint.
 */
+//在解释执行字节码时，如果时safe point时挂起线程
 #define SAFEPOINT                                                                 \
     if ( SafepointSynchronize::is_synchronizing()) {                              \
         {                                                                         \

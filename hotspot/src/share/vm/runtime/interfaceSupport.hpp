@@ -127,6 +127,7 @@ class ThreadStateTransition : public StackObj {
 
   // Change threadstate in a manner, so safepoint can detect changes.
   // Time-critical: called on exit from every runtime routine
+  //顺序状态流转，需要检查
   static inline void transition(JavaThread *thread, JavaThreadState from, JavaThreadState to) {
     assert(from != _thread_in_Java, "use transition_from_java");
     assert(from != _thread_in_native, "use transition_from_native");
@@ -188,15 +189,18 @@ class ThreadStateTransition : public StackObj {
   // Same as above, but assumes from = _thread_in_Java. This is simpler, since we
   // never block on entry to the VM. This will break the code, since e.g. preserve arguments
   // have not been setup.
+  //从 java 退出，无需阻塞检查
   static inline void transition_from_java(JavaThread *thread, JavaThreadState to) {
     assert(thread->thread_state() == _thread_in_Java, "coming from wrong thread state");
     thread->set_thread_state(to);
   }
 
+  //从 native 退出，此处需要做阻塞检查，因为变更状态后可能运行用户代码
   static inline void transition_from_native(JavaThread *thread, JavaThreadState to) {
     assert((to & 1) == 0, "odd numbers are transitions states");
     assert(thread->thread_state() == _thread_in_native, "coming from wrong thread state");
     // Change to transition state (assumes total store ordering!  -Urs)
+    //设置中间状体
     thread->set_thread_state(_thread_in_native_trans);
 
     // Make sure new state is seen by GC thread
@@ -213,6 +217,7 @@ class ThreadStateTransition : public StackObj {
     // We never install asynchronous exceptions when coming (back) in
     // to the runtime from native code because the runtime is not set
     // up to handle exceptions floating around at arbitrary points.
+    //是否在 safe point，是否有挂起、取消挂起 请求
     if (SafepointSynchronize::do_call_back() || thread->is_suspend_after_native()) {
       JavaThread::check_safepoint_and_suspend_for_native_trans(thread);
 
@@ -220,6 +225,7 @@ class ThreadStateTransition : public StackObj {
       CHECK_UNHANDLED_OOPS_ONLY(thread->clear_unhandled_oops();)
     }
 
+    //切换状态
     thread->set_thread_state(to);
   }
  protected:

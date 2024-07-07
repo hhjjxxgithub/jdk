@@ -142,7 +142,9 @@ class VM_Operation: public CHeapObj<mtInternal> {
   // doit_epilogue() will be called by the JavaThread once the VM operation
   // completes. If doit_prologue() returns false the VM operation is cancelled.
   virtual void doit()                            = 0;
+  //执行前置
   virtual bool doit_prologue()                   { return true; };
+  //执行后置
   virtual void doit_epilogue()                   {}; // Note: Not called if mode is: _concurrent
 
   // Type test

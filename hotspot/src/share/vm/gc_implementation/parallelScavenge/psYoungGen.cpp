@@ -258,9 +258,12 @@ void PSYoungGen::space_invariants() {
 }
 #endif
 
+
+//重新 设置年代大小
 void PSYoungGen::resize(size_t eden_size, size_t survivor_size) {
   // Resize the generation if needed. If the generation resize
   // reports false, do not attempt to resize the spaces.
+  //重新申请空间大小
   if (resize_generation(eden_size, survivor_size)) {
     // Then we lay out the spaces inside the generation
     resize_spaces(eden_size, survivor_size);
@@ -279,6 +282,7 @@ void PSYoungGen::resize(size_t eden_size, size_t survivor_size) {
 }
 
 
+//重新 申请年代空间大小
 bool PSYoungGen::resize_generation(size_t eden_size, size_t survivor_size) {
   const size_t alignment = virtual_space()->alignment();
   size_t orig_size = virtual_space()->committed_size();
@@ -293,17 +297,21 @@ bool PSYoungGen::resize_generation(size_t eden_size, size_t survivor_size) {
   assert(min_gen_size() <= orig_size && orig_size <= max_size(), "just checking");
 
   // Adjust new generation size
+  //预计 新生代大小 = eden大小 + 2 个幸存者区大小
   const size_t eden_plus_survivors =
           align_size_up(eden_size + 2 * survivor_size, alignment);
+  //实际可以获得的新生代大小
   size_t desired_size = MAX2(MIN2(eden_plus_survivors, max_size()),
                              min_gen_size());
   assert(desired_size <= max_size(), "just checking");
 
+  //需要的大小 大于已经申请的大小
   if (desired_size > orig_size) {
     // Grow the generation
     size_t change = desired_size - orig_size;
     assert(change % alignment == 0, "just checking");
     HeapWord* prev_high = (HeapWord*) virtual_space()->high();
+    //扩充大小
     if (!virtual_space()->expand_by(change)) {
       return false; // Error if we fail to resize!
     }
@@ -434,6 +442,12 @@ void PSYoungGen::mangle_survivors(MutableSpace* s1,
 }
 #endif // NOT PRODUCT
 
+//根据请求值，重新布局了新生代区域内存
+//分为两种情况操作，from区在左和在右， from位置不做变更，因为它存在着对象
+//当 from区在左，则to区结尾为新生代结尾处，to区开头为结尾向前偏移幸存区的大小
+//               from区头部保存不变，当to区和from区发生交叉，则from区尾部移动到from区已使用区域
+//当 from区在右，则to区结尾为新生代结尾处向前偏移幸存者区的大小，如果to区尾部在from区开头之后，则to区结尾为from区开头
+//              to区的开头为to区结尾向前偏移幸存者区的大小
 void PSYoungGen::resize_spaces(size_t requested_eden_size,
                                size_t requested_survivor_size) {
   assert(UseAdaptiveSizePolicy, "sanity check");
@@ -477,6 +491,7 @@ void PSYoungGen::resize_spaces(size_t requested_eden_size,
   if (requested_survivor_size == to_space()->capacity_in_bytes() &&
       requested_survivor_size == from_space()->capacity_in_bytes() &&
       requested_eden_size == eden_space()->capacity_in_bytes()) {
+      //大小没有变化，则不操作
     if (PrintAdaptiveSizePolicy && Verbose) {
       gclog_or_tty->print_cr("    capacities are the right sizes, returning");
     }
@@ -498,6 +513,7 @@ void PSYoungGen::resize_spaces(size_t requested_eden_size,
   bool eden_from_to_order = from_start < to_start;
   // Check whether from space is below to space
   if (eden_from_to_order) {
+      // from 区在 to 区的左侧
     // Eden, from, to
     eden_from_to_order = true;
     if (PrintAdaptiveSizePolicy && Verbose) {
@@ -513,6 +529,7 @@ void PSYoungGen::resize_spaces(size_t requested_eden_size,
     // The calculation is done this way to avoid 32bit
     // overflow (i.e., eden_start + requested_eden_size
     // may too large for representation in 32bits).
+    //from 区位置是固定的，因为其含有存活对象
     size_t eden_size;
     if (maintain_minimum) {
       // Only make eden larger than the requested size if
@@ -520,6 +537,7 @@ void PSYoungGen::resize_spaces(size_t requested_eden_size,
       // This could be done in general but policy at a higher
       // level is determining a requested size for eden and that
       // should be honored unless there is a fundamental reason.
+      //请求新生代大小小于 最小值，拓展 eden 区， 让eden区的尾部连接到from区的头部
       eden_size = pointer_delta(from_start,
                                 eden_start,
                                 sizeof(char));
@@ -536,24 +554,31 @@ void PSYoungGen::resize_spaces(size_t requested_eden_size,
     // extra calculations.
 
     // First calculate an optimal to-space
+    //to区尾部为新生代提交内存的最尾部
     to_end   = (char*)virtual_space()->high();
+    //to区的头部为尾部向左一点 幸存者区大小的位置
     to_start = (char*)pointer_delta(to_end, (char*)requested_survivor_size,
                                     sizeof(char));
 
     // Does the optimal to-space overlap from-space?
+    //判断to区和from区是否交叉
     if (to_start < (char*)from_space()->end()) {
+        //from 区的尾部 大于 to区的头部，是交叉了
       assert(heap->kind() == CollectedHeap::ParallelScavengeHeap, "Sanity");
 
       // Calculate the minimum offset possible for from_end
+      //计算 from区已经使用的大小
       size_t from_size = pointer_delta(from_space()->top(), from_start, sizeof(char));
 
       // Should we be in this method if from_space is empty? Why not the set_space method? FIX ME!
+      //from 区还没有使用过，则压缩为最小空间
       if (from_size == 0) {
         from_size = alignment;
       } else {
         from_size = align_size_up(from_size, alignment);
       }
 
+      //from区的尾部就为 头部加上已使用空间
       from_end = from_start + from_size;
       assert(from_end > from_start, "addition overflow or from_size problem");
 
@@ -592,10 +617,13 @@ void PSYoungGen::resize_spaces(size_t requested_eden_size,
     // to space as if we were able to resize from space, even though from
     // space is not modified.
     // Giving eden priority was tried and gave poorer performance.
+    //to区的结尾为 新生代可用内存尾部，向前偏移一个幸存者区大小
     to_end   = (char*)pointer_delta(virtual_space()->high(),
                                     (char*)requested_survivor_size,
                                     sizeof(char));
+    //如果to区尾部大于 from区头部，则以from区头部为准，因为from区不能动
     to_end   = MIN2(to_end, from_start);
+    //to区头部则以尾部偏移一个幸存者区大小
     to_start = (char*)pointer_delta(to_end, (char*)requested_survivor_size,
                                     sizeof(char));
     // if the space sizes are to be increased by several times then
@@ -607,6 +635,7 @@ void PSYoungGen::resize_spaces(size_t requested_eden_size,
     // See  comments above on calculating eden_end.
     size_t eden_size;
     if (maintain_minimum) {
+        //如果空间小于最小值，则拉长eden区尾部到 to区头部
       eden_size = pointer_delta(to_start, eden_start, sizeof(char));
     } else {
       eden_size = MIN2(requested_eden_size,

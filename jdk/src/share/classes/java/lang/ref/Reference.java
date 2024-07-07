@@ -111,6 +111,7 @@ public abstract class Reference<T> {
      * therefore critical that any code holding this lock complete as quickly
      * as possible, allocate no new objects, and avoid calling user code.
      */
+     //用于gc的同步锁
     static private class Lock { };
     private static Lock lock = new Lock();
 

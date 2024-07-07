@@ -217,6 +217,9 @@ void PSRefProcTaskExecutor::execute(EnqueueTask& task)
 //
 // Note that this method should only be called from the vm_thread while
 // at a safepoint!
+//执行gc
+//先执行 minor gc， 当 minor gc 出现晋升失败，或者是加权平均晋升大小 大于 老年代空闲大小
+//执行 major gc
 bool PSScavenge::invoke() {
   assert(SafepointSynchronize::is_at_safepoint(), "should be at safepoint");
   assert(Thread::current() == (Thread*)VMThread::vm_thread(), "should be in vm thread");
@@ -228,7 +231,10 @@ bool PSScavenge::invoke() {
   PSAdaptiveSizePolicy* policy = heap->size_policy();
   IsGCActiveMark mark;
 
+  //minor gc
   const bool scavenge_done = PSScavenge::invoke_no_policy();
+  //minor gc出现晋升失败，即老年代空间不足
+  //或者老年代空间已经不足，即 加权平均晋升大小 大于 老年代空闲大小
   const bool need_full_gc = !scavenge_done ||
     policy->should_full_GC(heap->old_gen()->free_in_bytes());
   bool full_gc_done = false;
@@ -239,14 +245,18 @@ bool PSScavenge::invoke() {
     counters->update_full_follows_scavenge(ffs_val);
   }
 
+  //需要full gc
   if (need_full_gc) {
     GCCauseSetter gccs(heap, GCCause::_adaptive_size_policy);
     CollectorPolicy* cp = heap->collector_policy();
+    //是否清楚所有软引用
     const bool clear_all_softrefs = cp->should_clear_all_soft_refs();
 
+    //老年代gc，并行收集
     if (UseParallelOldGC) {
       full_gc_done = PSParallelCompact::invoke_no_policy(clear_all_softrefs);
     } else {
+        //标记整理
       full_gc_done = PSMarkSweep::invoke_no_policy(clear_all_softrefs);
     }
   }
@@ -256,6 +266,7 @@ bool PSScavenge::invoke() {
 
 // This method contains no policy. You should probably
 // be calling invoke() instead.
+// 没有策略，仅仅是进行 minor gc
 bool PSScavenge::invoke_no_policy() {
   assert(SafepointSynchronize::is_at_safepoint(), "should be at safepoint");
   assert(Thread::current() == (Thread*)VMThread::vm_thread(), "should be in vm thread");
@@ -410,6 +421,7 @@ bool PSScavenge::invoke_no_policy() {
         }
       }
 
+      //添加所有GC root 的扫描任务
       q->enqueue(new ScavengeRootsTask(ScavengeRootsTask::universe));
       q->enqueue(new ScavengeRootsTask(ScavengeRootsTask::jni_handles));
       // We scan the thread roots in parallel
@@ -431,6 +443,7 @@ bool PSScavenge::invoke_no_policy() {
         }
       }
 
+      //等待扫描任务完成
       gc_task_manager()->execute_and_wait(q);
     }
 
@@ -445,6 +458,7 @@ bool PSScavenge::invoke_no_policy() {
       PSKeepAliveClosure keep_alive(promotion_manager);
       PSEvacuateFollowersClosure evac_followers(promotion_manager);
       ReferenceProcessorStats stats;
+      // 软、弱、虚幻 引用的处理
       if (reference_processor()->processing_is_mt()) {
         PSRefProcTaskExecutor task_executor;
         stats = reference_processor()->process_discovered_references(
@@ -485,8 +499,11 @@ bool PSScavenge::invoke_no_policy() {
     // implicitly saying it's mutator time).
     size_policy->minor_collection_end(gc_cause);
 
+    //全部晋升成功，即内存够分配
     if (!promotion_failure_occurred) {
       // Swap the survivor spaces.
+      //情况 eden、from区，其对象已经被分配到to区或者老年代了
+      //from 和 to 区交换
       young_gen->eden_space()->clear(SpaceDecorator::Mangle);
       young_gen->from_space()->clear(SpaceDecorator::Mangle);
       young_gen->swap_spaces();
@@ -498,7 +515,10 @@ bool PSScavenge::invoke_no_policy() {
       // A successful scavenge should restart the GC time limit count which is
       // for full GC's.
       size_policy->reset_gc_overhead_limit_count();
+
+      //使用自适应策略
       if (UseAdaptiveSizePolicy) {
+          // 计算新的幸存者区大小 并且调节 晋升值
         // Calculate the new survivor size and tenuring threshold
 
         if (PrintAdaptiveSizePolicy) {
@@ -527,8 +547,10 @@ bool PSScavenge::invoke_no_policy() {
           counters->update_survivor_overflowed(_survivor_overflow);
         }
 
+        //幸存者区最大值
         size_t survivor_limit =
           size_policy->max_survivor_size(young_gen->max_size());
+        //计算幸存者区大小和晋升值
         _tenuring_threshold =
           size_policy->compute_survivor_space_size_and_threshold(
                                                            _survivor_overflow,
@@ -573,12 +595,13 @@ bool PSScavenge::invoke_no_policy() {
           // Used for diagnostics
           size_policy->clear_generation_free_space_flags();
 
+          // 计算 eden区 的大小
           size_policy->compute_eden_space_size(young_live,
                                                eden_live,
                                                cur_eden,
                                                max_eden_size,
                                                false /* not full gc*/);
-
+          //检查 gc 过载清空
           size_policy->check_gc_overhead_limit(young_live,
                                                eden_live,
                                                max_old_gen_size,
@@ -586,7 +609,7 @@ bool PSScavenge::invoke_no_policy() {
                                                false /* not full gc*/,
                                                gc_cause,
                                                heap->collector_policy());
-
+         //衰减 补充比例
           size_policy->decay_supplemental_growth(false /* not full gc*/);
         }
         // Resize the young generation at every collection
@@ -597,7 +620,7 @@ bool PSScavenge::invoke_no_policy() {
         // Resizing the old gen at minor collects can cause increases
         // that don't feed back to the generation sizing policy until
         // a major collection.  Don't resize the old gen here.
-
+        // 重新配置 新生代的大小
         heap->resize_young_gen(size_policy->calculated_eden_size_in_bytes(),
                         size_policy->calculated_survivor_size_in_bytes());
 

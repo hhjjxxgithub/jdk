@@ -88,18 +88,20 @@ void VMOperationQueue::queue_add_front(int prio, VM_Operation *op) {
   insert(_queue[prio]->next(), op);
 }
 
+//插入链表尾部
 void VMOperationQueue::queue_add_back(int prio, VM_Operation *op) {
   _queue_length[prio]++;
   insert(_queue[prio]->prev(), op);
 }
 
-
+//拿去链表元素
 void VMOperationQueue::unlink(VM_Operation* q) {
   assert(q->next()->prev() == q && q->prev()->next() == q, "sanity check");
   q->prev()->set_next(q->next());
   q->next()->set_prev(q->prev());
 }
 
+//拿出指定队列的链表头元素
 VM_Operation* VMOperationQueue::queue_remove_front(int prio) {
   if (queue_empty(prio)) return NULL;
   assert(_queue_length[prio] >= 0, "sanity check");
@@ -110,6 +112,7 @@ VM_Operation* VMOperationQueue::queue_remove_front(int prio) {
   return r;
 }
 
+//抽取队列
 VM_Operation* VMOperationQueue::queue_drain(int prio) {
   if (queue_empty(prio)) return NULL;
   DEBUG_ONLY(int length = _queue_length[prio];);
@@ -165,11 +168,13 @@ bool VMOperationQueue::add(VM_Operation *op) {
 
   // Encapsulates VM queue policy. Currently, that
   // only involves putting them on the right list
+  //需要在 safe point进行，则放入右边列表，最高优先级
   if (op->evaluate_at_safepoint()) {
     queue_add_back(SafepointPriority, op);
     return true;
   }
 
+  //肉质放入中等优先级队列
   queue_add_back(MediumPriority, op);
   return true;
 }
@@ -369,6 +374,7 @@ void VMThread::evaluate_operation(VM_Operation* op) {
 
     EventExecuteVMOperation event;
 
+    //执行操作
     op->evaluate();
 
     if (event.should_commit()) {
@@ -408,6 +414,7 @@ void VMThread::evaluate_operation(VM_Operation* op) {
 }
 
 
+//vm线程主循环
 void VMThread::loop() {
   assert(_cur_vm_operation == NULL, "no current one should be executing");
 
@@ -422,6 +429,7 @@ void VMThread::loop() {
 
       // Look for new operation
       assert(_cur_vm_operation == NULL, "no current one should be executing");
+      //获取下一个操作
       _cur_vm_operation = _vm_queue->remove_next();
 
       // Stall time tracking code
@@ -432,8 +440,10 @@ void VMThread::loop() {
           tty->print_cr("%s stall: %Ld",  _cur_vm_operation->name(), stall);
       }
 
+      //当前没有操作认为，等待
       while (!should_terminate() && _cur_vm_operation == NULL) {
         // wait with a timeout to guarantee safepoints at regular intervals
+        //等待一个safe point 间隔时间，
         bool timedout =
           VMOperationQueue_lock->wait(Mutex::_no_safepoint_check_flag,
                                       GuaranteedSafepointInterval);
@@ -445,24 +455,29 @@ void VMThread::loop() {
           exit(-1);
         }
 
+        //超时
         if (timedout && (SafepointALot ||
                          SafepointSynchronize::is_cleanup_needed())) {
+            //解锁
           MutexUnlockerEx mul(VMOperationQueue_lock,
                               Mutex::_no_safepoint_check_flag);
           // Force a safepoint since we have not had one for at least
           // 'GuaranteedSafepointInterval' milliseconds.  This will run all
           // the clean-up processing that needs to be done regularly at a
           // safepoint
+          //强制进入safepoint，在间隔了一个 GuaranteedSafepointInterval 时间后
           SafepointSynchronize::begin();
           #ifdef ASSERT
             if (GCALotAtAllSafepoints) InterfaceSupport::check_gc_alot();
           #endif
           SafepointSynchronize::end();
         }
+        //拿出一个元素
         _cur_vm_operation = _vm_queue->remove_next();
 
         // If we are at a safepoint we will evaluate all the operations that
         // follow that also require a safepoint
+        //如果拿出元素不为空，且其是safe point 的队列，则情况该队列元素
         if (_cur_vm_operation != NULL &&
             _cur_vm_operation->evaluate_at_safepoint()) {
           safepoint_ops = _vm_queue->drain_at_safepoint_priority();
@@ -489,22 +504,28 @@ void VMThread::loop() {
 
       // If we are at a safepoint we will evaluate all the operations that
       // follow that also require a safepoint
+      //当前操作是需要 safepoint
       if (_cur_vm_operation->evaluate_at_safepoint()) {
-
+        //放在字段上，使得其对象可达
         _vm_queue->set_drain_list(safepoint_ops); // ensure ops can be scanned
 
+        //进入safepoint
         SafepointSynchronize::begin();
+        //执行操作
         evaluate_operation(_cur_vm_operation);
         // now process all queued safepoint ops, iteratively draining
         // the queue until there are none left
         do {
+            //循环执行所有需要 safepoint 的操作
           _cur_vm_operation = safepoint_ops;
           if (_cur_vm_operation != NULL) {
             do {
               // evaluate_operation deletes the op object so we have
               // to grab the next op now
               VM_Operation* next = _cur_vm_operation->next();
+              //使对象可达
               _vm_queue->set_drain_list(next);
+              //执行操作
               evaluate_operation(_cur_vm_operation);
               _cur_vm_operation = next;
               if (PrintSafepointStatistics) {
@@ -522,22 +543,26 @@ void VMThread::loop() {
           // that simply means the op will wait for the next major cycle of the
           // VMThread - just as it would if the GC thread lost the race for
           // the lock.
+          //再次查看是否还有 safepoint 操作
           if (_vm_queue->peek_at_safepoint_priority()) {
             // must hold lock while draining queue
             MutexLockerEx mu_queue(VMOperationQueue_lock,
                                      Mutex::_no_safepoint_check_flag);
+            //提取所有操作
             safepoint_ops = _vm_queue->drain_at_safepoint_priority();
           } else {
             safepoint_ops = NULL;
           }
+          //没有操作则退出
         } while(safepoint_ops != NULL);
-
         _vm_queue->set_drain_list(NULL);
 
         // Complete safepoint synchronization
+        //退出
         SafepointSynchronize::end();
 
       } else {  // not a safepoint operation
+          //没有 safepoint 操作，直接执行
         if (TraceLongCompiles) {
           elapsedTimer t;
           t.start();
@@ -561,6 +586,7 @@ void VMThread::loop() {
     //
     //  Notify (potential) waiting Java thread(s) - lock without safepoint
     //  check so that sneaking is not possible
+    //唤醒等待的线程
     { MutexLockerEx mu(VMOperationRequest_lock,
                        Mutex::_no_safepoint_check_flag);
       VMOperationRequest_lock->notify_all();
@@ -568,7 +594,7 @@ void VMThread::loop() {
 
     //
     // We want to make sure that we get to a safepoint regularly.
-    //
+    // 查看safepoint 间隔是否到达，如果到达则强制进入safepoint
     if (SafepointALot || SafepointSynchronize::is_cleanup_needed()) {
       long interval          = SafepointSynchronize::last_non_safepoint_interval();
       bool max_time_exceeded = GuaranteedSafepointInterval != 0 && (interval > GuaranteedSafepointInterval);
@@ -581,9 +607,11 @@ void VMThread::loop() {
   }
 }
 
+//执行vm操作
 void VMThread::execute(VM_Operation* op) {
   Thread* t = Thread::current();
 
+  //当前是否是vm线程
   if (!t->is_VM_thread()) {
     SkipGCALot sgcalot(t);    // avoid re-entrant attempts to gc-a-lot
     // JavaThread or WatcherThread
@@ -594,6 +622,7 @@ void VMThread::execute(VM_Operation* op) {
     }
 
     // New request from Java thread, evaluate prologue
+    //操作前置
     if (!op->doit_prologue()) {
       return;   // op was cancelled
     }
@@ -616,9 +645,11 @@ void VMThread::execute(VM_Operation* op) {
     // VMOperationQueue_lock, so we can block without a safepoint check. This allows vm operation requests
     // to be queued up during a safepoint synchronization.
     {
+        //加入等待队列
       VMOperationQueue_lock->lock_without_safepoint_check();
       bool ok = _vm_queue->add(op);
     op->set_timestamp(os::javaTimeMillis());
+     //通知等待线程
       VMOperationQueue_lock->notify();
       VMOperationQueue_lock->unlock();
       // VM_Operation got skipped
@@ -639,6 +670,7 @@ void VMThread::execute(VM_Operation* op) {
     }
 
     if (execute_epilog) {
+        //操作后置
       op->doit_epilogue();
     }
   } else {
@@ -661,8 +693,11 @@ void VMThread::execute(VM_Operation* op) {
     HandleMark hm(t);
     _cur_vm_operation = op;
 
+    //vm操作需要在 safe point，当前不在 safe point，
     if (op->evaluate_at_safepoint() && !SafepointSynchronize::is_at_safepoint()) {
+        //进入 safe point
       SafepointSynchronize::begin();
+      //执行操作
       op->evaluate();
       SafepointSynchronize::end();
     } else {

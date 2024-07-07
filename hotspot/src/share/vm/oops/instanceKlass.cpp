@@ -1933,6 +1933,7 @@ template <class T> void assert_nothing(T *p) {}
 //               it a template function)
 //   assert_fn - assert function which is template function because performance
 //               doesn't matter when enabled.
+//迭代对象指定区域，并回调
 #define InstanceKlass_SPECIALIZED_OOP_ITERATE( \
   T, start_p, count, do_oop,                \
   assert_fn)                                \
@@ -1983,6 +1984,7 @@ template <class T> void assert_nothing(T *p) {}
 // The following macros call specialized macros, passing either oop or
 // narrowOop as the specialization type.  These test the UseCompressedOops
 // flag.
+//迭代对象的非静态字段
 #define InstanceKlass_OOP_MAP_ITERATE(obj, do_oop, assert_fn)            \
 {                                                                        \
   /* Compute oopmap block range. The common case                         \
@@ -2055,9 +2057,12 @@ template <class T> void assert_nothing(T *p) {}
   }                                                                      \
 }
 
+//迭代对象的所有非静态字段值，并标记它们
 void InstanceKlass::oop_follow_contents(oop obj) {
   assert(obj != NULL, "can't follow the content of NULL object");
+  //标记 类对象相关对象
   MarkSweep::follow_klass(obj->klass());
+  //迭代对象的所有非静态字段值，并标记它们
   InstanceKlass_OOP_MAP_ITERATE( \
     obj, \
     MarkSweep::mark_and_push(p), \
@@ -2151,6 +2156,7 @@ ALL_OOP_OOP_ITERATE_CLOSURES_1(InstanceKlass_OOP_OOP_ITERATE_BACKWARDS_DEFN)
 ALL_OOP_OOP_ITERATE_CLOSURES_2(InstanceKlass_OOP_OOP_ITERATE_BACKWARDS_DEFN)
 #endif // INCLUDE_ALL_GCS
 
+//变更对象的对象对象的指针
 int InstanceKlass::oop_adjust_pointers(oop obj) {
   int size = size_helper();
   InstanceKlass_OOP_MAP_ITERATE( \

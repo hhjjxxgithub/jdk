@@ -43,10 +43,14 @@
 //
 // This serves as our best estimate of a future unknown.
 //
+//加权平均
 class AdaptiveWeightedAverage : public CHeapObj<mtGC> {
  private:
+    //最后平均值
   float            _average;        // The last computed average
+  //样品数
   unsigned         _sample_count;   // How often we've sampled this average
+  //权重值
   unsigned         _weight;         // The weight used to smooth the averages
                                     //   A higher weight favors the most
                                     //   recent data.
@@ -55,6 +59,7 @@ class AdaptiveWeightedAverage : public CHeapObj<mtGC> {
   const static unsigned OLD_THRESHOLD = 100;
 
  protected:
+    //最后样品值
   float            _last_sample;    // The last value sampled.
 
   void  increment_count() {
@@ -123,6 +128,7 @@ class AdaptiveWeightedAverage : public CHeapObj<mtGC> {
 //
 // This serves as our best estimate of an upper bound on a future
 // unknown.
+//偏差平均
 class AdaptivePaddedAverage : public AdaptiveWeightedAverage {
  private:
   float          _padded_avg;     // The last computed padded average

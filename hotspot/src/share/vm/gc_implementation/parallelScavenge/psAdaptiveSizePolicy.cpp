@@ -161,6 +161,8 @@ void PSAdaptiveSizePolicy::major_collection_end(size_t amount_live,
 // If the remaining free space in the old generation is less that
 // that expected to be needed by the next collection, do a full
 // collection now.
+//是否应该进行 major gc
+//如果 加权平均晋升大小 大于老年代目前可用大小，则需要
 bool PSAdaptiveSizePolicy::should_full_GC(size_t old_free_in_bytes) {
 
   // A similar test is done in the scavenge's should_attempt_scavenge().  If
@@ -201,12 +203,13 @@ void PSAdaptiveSizePolicy::compute_generations_free_space(
                                            size_t max_old_gen_size,
                                            size_t max_eden_size,
                                            bool   is_full_gc) {
+    //计算eden区的大小
   compute_eden_space_size(young_live,
                           eden_live,
                           cur_eden,
                           max_eden_size,
                           is_full_gc);
-
+  //计算老年代的空闲大小
   compute_old_gen_free_space(old_live,
                              cur_eden,
                              max_old_gen_size,
@@ -240,6 +243,7 @@ void PSAdaptiveSizePolicy::compute_eden_space_size(
   // been reached, no tenured generation adjustments will be made.
 
   // Until we know better, desired promotion size uses the last calculation
+  // 上次晋升的大小
   size_t desired_promo_size = _promo_size;
 
   // Start eden at the current value.  The desired value that is stored
@@ -251,6 +255,7 @@ void PSAdaptiveSizePolicy::compute_eden_space_size(
   // caused desired_eden_size to grow way too large and caused
   // an overflow down stream.  It may have improved performance in
   // some case but is dangerous.
+  //当前eden大小
   size_t desired_eden_size = cur_eden;
 
   // Cache some values. There's a bit of work getting these, so
@@ -285,22 +290,28 @@ void PSAdaptiveSizePolicy::compute_eden_space_size(
   // Add some checks for a threshold for a change.  For example,
   // a change less than the necessary alignment is probably not worth
   // attempting.
+  // 主要调整逻辑
+  // 1、 平均暂停时间是否超过目标暂停时间，如果超过则降低空间大小。 理论上 空间越小，则暂停时间越短
+  // 2、 吞吐量是否小于目标吞吐量，如果小于则增大空间大小。理论上 空间越大，则gc的次数越少
 
-
-  if ((_avg_minor_pause->padded_average() > gc_pause_goal_sec()) ||
+  if ((_avg_minor_pause->padded_average() > gc_pause_goal_sec()) || //最大gc暂停时间
       (_avg_major_pause->padded_average() > gc_pause_goal_sec())) {
+      // 超过 目标暂停时间， 默认值为 数字最大值
     //
     // Check pauses
     //
     // Make changes only to affect one of the pauses (the larger)
     // at a time.
+    //gc停止时间没达标，调整空间
     adjust_eden_for_pause_time(is_full_gc, &desired_promo_size, &desired_eden_size);
 
-  } else if (_avg_minor_pause->padded_average() > gc_minor_pause_goal_sec()) {
+  } else if (_avg_minor_pause->padded_average() > gc_minor_pause_goal_sec()) {//最大 minor gc 暂停时间
     // Adjust only for the minor pause time goal
+    // 调整新生代大小， 大概降低百分之5
     adjust_eden_for_minor_pause_time(is_full_gc, &desired_eden_size);
 
   } else if(adjusted_mutator_cost() < _throughput_goal) {
+      // 吞吐量小于目标吞吐量
     // This branch used to require that (mutator_cost() > 0.0 in 1.4.2.
     // This sometimes resulted in skipping to the minimize footprint
     // code.  Change this to try and reduce GC time if mutator time is
@@ -312,6 +323,7 @@ void PSAdaptiveSizePolicy::compute_eden_space_size(
     assert(major_cost >= 0.0, "major cost is < 0.0");
     assert(minor_cost >= 0.0, "minor cost is < 0.0");
     // Try to reduce the GC times.
+    // 增加 eden区一倍，以减少gc频率
     adjust_eden_for_throughput(is_full_gc, &desired_eden_size);
 
   } else {
@@ -324,6 +336,7 @@ void PSAdaptiveSizePolicy::compute_eden_space_size(
         avg_major_gc_cost()->average() >= 0.0 &&
         avg_minor_gc_cost()->average() >= 0.0) {
       size_t desired_sum = desired_eden_size + desired_promo_size;
+      // 各个指标都符合，则降低 eden 区大小， 默认是 百分之5 * desired_eden_size / desired_sum
       desired_eden_size = adjust_eden_for_footprint(desired_eden_size, desired_sum);
     }
   }
@@ -415,9 +428,11 @@ void PSAdaptiveSizePolicy::compute_eden_space_size(
     gclog_or_tty->cr();
   }
 
+  //设置 eden 区大小
   set_eden_size(desired_eden_size);
 }
 
+//计算 老年代需要的 晋升空间大小
 void PSAdaptiveSizePolicy::compute_old_gen_free_space(
                                            size_t old_live,
                                            size_t cur_eden,
@@ -445,6 +460,7 @@ void PSAdaptiveSizePolicy::compute_old_gen_free_space(
   // been reached, no tenured generation adjustments will be made.
 
   // Until we know better, desired promotion size uses the last calculation
+  //要晋升的空间大小
   size_t desired_promo_size = _promo_size;
 
   // Start eden at the current value.  The desired value that is stored
@@ -490,6 +506,7 @@ void PSAdaptiveSizePolicy::compute_old_gen_free_space(
 
   if ((_avg_minor_pause->padded_average() > gc_pause_goal_sec()) ||
       (_avg_major_pause->padded_average() > gc_pause_goal_sec())) {
+      //minor gc 或者 major gc 的加权平均暂停时间 大于 目标gc暂停时间
     //
     // Check pauses
     //
@@ -497,12 +514,17 @@ void PSAdaptiveSizePolicy::compute_old_gen_free_space(
     // at a time.
     if (is_full_gc) {
       set_decide_at_full_gc(decide_at_full_gc_true);
+      // 调整晋升大小 来改变 暂停时间
       adjust_promo_for_pause_time(is_full_gc, &desired_promo_size, &desired_eden_size);
     }
   } else if (_avg_minor_pause->padded_average() > gc_minor_pause_goal_sec()) {
+      //minor gc 加权平均暂停时间 大于 目标暂停时间
     // Adjust only for the minor pause time goal
+    //调整 晋升大小 来改变 minor暂停时间
     adjust_promo_for_minor_pause_time(is_full_gc, &desired_promo_size, &desired_eden_size);
   } else if(adjusted_mutator_cost() < _throughput_goal) {
+      //吞吐量 不通过
+      //吞吐量 = 1 - 衰减的major gc 耗时
     // This branch used to require that (mutator_cost() > 0.0 in 1.4.2.
     // This sometimes resulted in skipping to the minimize footprint
     // code.  Change this to try and reduce GC time if mutator time is
@@ -516,6 +538,7 @@ void PSAdaptiveSizePolicy::compute_old_gen_free_space(
     // Try to reduce the GC times.
     if (is_full_gc) {
       set_decide_at_full_gc(decide_at_full_gc_true);
+      //调整 晋升大小 来改变吞吐量
       adjust_promo_for_throughput(is_full_gc, &desired_promo_size);
     }
   } else {
@@ -528,6 +551,7 @@ void PSAdaptiveSizePolicy::compute_old_gen_free_space(
         avg_major_gc_cost()->average() >= 0.0 &&
         avg_minor_gc_cost()->average() >= 0.0) {
       if (is_full_gc) {
+          //各项指标都通过，则直接增加 需要晋升的大小 + eden区大小
         set_decide_at_full_gc(decide_at_full_gc_true);
         size_t desired_sum = desired_eden_size + desired_promo_size;
         desired_promo_size = adjust_promo_for_footprint(desired_promo_size, desired_sum);
@@ -627,12 +651,14 @@ void PSAdaptiveSizePolicy::decay_supplemental_growth(bool is_full_gc) {
   if (is_full_gc) {
     // Don't wait for the threshold value for the major collections.  If
     // here, the supplemental growth term was used and should decay.
+    // 每 发生 2 次 major gc，老年代的补充比例下降一倍
     if ((_avg_major_pause->count() % TenuredGenerationSizeSupplementDecay)
         == 0) {
       _old_gen_size_increment_supplement =
         _old_gen_size_increment_supplement >> 1;
     }
   } else {
+      //当发生 5次以上 minor gc后， 每 8 次minor gc，新生代的补充比例下降一倍
     if ((_avg_minor_pause->count() >= AdaptiveSizePolicyReadyThreshold) &&
         (_avg_minor_pause->count() % YoungGenerationSizeSupplementDecay) == 0) {
       _young_gen_size_increment_supplement =
@@ -641,6 +667,7 @@ void PSAdaptiveSizePolicy::decay_supplemental_growth(bool is_full_gc) {
   }
 }
 
+//调整 晋升大小 来改变 minor gc暂停时间过长
 void PSAdaptiveSizePolicy::adjust_promo_for_minor_pause_time(bool is_full_gc,
     size_t* desired_promo_size_ptr, size_t* desired_eden_size_ptr) {
 
@@ -653,12 +680,15 @@ void PSAdaptiveSizePolicy::adjust_promo_for_minor_pause_time(bool is_full_gc,
     if (*desired_eden_size_ptr <= _intra_generation_alignment) {
       // Vary the old gen size to reduce the young gen pause.  This
       // may not be a good idea.  This is just a test.
+      //如果评估 降低老年代大小
       if (minor_pause_old_estimator()->decrement_will_decrease()) {
         set_change_old_gen_for_min_pauses(decrease_old_gen_for_min_pauses_true);
+        //降低 百分5
         *desired_promo_size_ptr =
           _promo_size - promo_decrement_aligned_down(*desired_promo_size_ptr);
       } else {
         set_change_old_gen_for_min_pauses(increase_old_gen_for_min_pauses_true);
+        //增长 一倍
         size_t promo_heap_delta =
           promo_increment_with_supplement_aligned_up(*desired_promo_size_ptr);
         if ((*desired_promo_size_ptr + promo_heap_delta) >
@@ -671,6 +701,7 @@ void PSAdaptiveSizePolicy::adjust_promo_for_minor_pause_time(bool is_full_gc,
   }
 }
 
+// 调整 eden 因为 minor gc暂停时间过长
 void PSAdaptiveSizePolicy::adjust_eden_for_minor_pause_time(bool is_full_gc,
     size_t* desired_eden_size_ptr) {
 
@@ -680,21 +711,27 @@ void PSAdaptiveSizePolicy::adjust_eden_for_minor_pause_time(bool is_full_gc,
   // The AdaptiveSizePolicyInitializingSteps test is not used
   // here.  It has not seemed to be needed but perhaps should
   // be added for consistency.
+
+  // 调整新生代的大小来减少gc的暂停时间
   if (minor_pause_young_estimator()->decrement_will_decrease()) {
+      //根据统计计算来预估 减少eden区可以减少gc时间
         // reduce eden size
     set_change_young_gen_for_min_pauses(
           decrease_young_gen_for_min_pauses_true);
+    //默认 大概降低 百分之五
     *desired_eden_size_ptr = *desired_eden_size_ptr -
       eden_decrement_aligned_down(*desired_eden_size_ptr);
     } else {
       // EXPERIMENTAL ADJUSTMENT
       // Only record that the estimator indicated such an action.
       // *desired_eden_size_ptr = *desired_eden_size_ptr + eden_heap_delta;
+      //这里只做了记录，但并没有变更
       set_change_young_gen_for_min_pauses(
           increase_young_gen_for_min_pauses_true);
   }
 }
 
+//调整 晋升大小 来 改变gc暂停时间
 void PSAdaptiveSizePolicy::adjust_promo_for_pause_time(bool is_full_gc,
                                              size_t* desired_promo_size_ptr,
                                              size_t* desired_eden_size_ptr) {
@@ -705,6 +742,7 @@ void PSAdaptiveSizePolicy::adjust_promo_for_pause_time(bool is_full_gc,
   // attempting.
 
   if (_avg_minor_pause->padded_average() > _avg_major_pause->padded_average()) {
+      //minor gc的加权平均暂停 大于 major gc，
     adjust_promo_for_minor_pause_time(is_full_gc, desired_promo_size_ptr, desired_eden_size_ptr);
     // major pause adjustments
   } else if (is_full_gc) {
@@ -712,9 +750,11 @@ void PSAdaptiveSizePolicy::adjust_promo_for_pause_time(bool is_full_gc,
     // affects of a change can only be seen at full gc's.
 
     // Reduce old generation size to reduce pause?
+    // 评估 降低老年代大小 会减少 major gc的暂停时间
     if (major_pause_old_estimator()->decrement_will_decrease()) {
       // reduce old generation size
       set_change_old_gen_for_maj_pauses(decrease_old_gen_for_maj_pauses_true);
+      //降低 百分5
       promo_heap_delta = promo_decrement_aligned_down(*desired_promo_size_ptr);
       *desired_promo_size_ptr = _promo_size - promo_heap_delta;
     } else {
@@ -744,17 +784,21 @@ void PSAdaptiveSizePolicy::adjust_eden_for_pause_time(bool is_full_gc,
   // Add some checks for a threshold for a change.  For example,
   // a change less than the required alignment is probably not worth
   // attempting.
+  // minor gc 平均时间超过了 major gc 时间
   if (_avg_minor_pause->padded_average() > _avg_major_pause->padded_average()) {
     adjust_eden_for_minor_pause_time(is_full_gc,
                                 desired_eden_size_ptr);
     // major pause adjustments
   } else if (is_full_gc) {
+    // 这次是 major gc 引发的调整
     // Adjust for the major pause time only at full gc's because the
     // affects of a change can only be seen at full gc's.
+    // major gc是否调整新生代
     if (PSAdjustYoungGenForMajorPause) {
       // If the promo size is at the minimum (i.e., the old gen
       // size will not actually decrease), consider changing the
       // young gen size.
+      //上次晋升大小  小于 对齐值， 说明晋升比例很小，新生代空间富余
       if (*desired_promo_size_ptr < _intra_generation_alignment) {
         // If increasing the young generation will decrease the old gen
         // pause, do it.
@@ -763,11 +807,14 @@ void PSAdaptiveSizePolicy::adjust_eden_for_pause_time(bool is_full_gc,
         // some number of iterations, just try to increase the young
         // gen size if the major pause is too long to try and establish
         // good statistics for later decisions.
+        //
+        //根据统计预测，增加新生代大小 会 减少 major gc 时间
         if (major_pause_young_estimator()->increment_will_decrease() ||
           (_young_gen_change_for_major_pause_count
             <= AdaptiveSizePolicyInitializingSteps)) {
           set_change_young_gen_for_maj_pauses(
           increase_young_gen_for_maj_pauses_true);
+          // 增加 eden 区大小，大概是 百分之 20
           eden_heap_delta = eden_increment_aligned_up(*desired_eden_size_ptr);
           *desired_eden_size_ptr = _eden_size + eden_heap_delta;
           _young_gen_change_for_major_pause_count++;
@@ -776,6 +823,7 @@ void PSAdaptiveSizePolicy::adjust_eden_for_pause_time(bool is_full_gc,
           // the major pause
           set_change_young_gen_for_maj_pauses(
             decrease_young_gen_for_maj_pauses_true);
+          //减少 eden区大小，大概百分之 5
           eden_heap_delta = eden_decrement_aligned_down(*desired_eden_size_ptr);
           *desired_eden_size_ptr = _eden_size - eden_heap_delta;
         }
@@ -793,6 +841,7 @@ void PSAdaptiveSizePolicy::adjust_eden_for_pause_time(bool is_full_gc,
   }
 }
 
+//调整 晋升大小 来改变吞吐量
 void PSAdaptiveSizePolicy::adjust_promo_for_throughput(bool is_full_gc,
                                              size_t* desired_promo_size_ptr) {
 
@@ -818,6 +867,7 @@ void PSAdaptiveSizePolicy::adjust_promo_for_throughput(bool is_full_gc,
     size_t scaled_promo_heap_delta = 0;
     // Can the increment to the generation be scaled?
     if (gc_cost() >= 0.0 && major_gc_cost() >= 0.0) {
+        //增长大小为  老年代大小  *  major_gc_cost() / gc_cost()
       size_t promo_heap_delta =
         promo_increment_with_supplement_aligned_up(*desired_promo_size_ptr);
       double scale_by_ratio = major_gc_cost() / gc_cost();
@@ -833,6 +883,7 @@ void PSAdaptiveSizePolicy::adjust_promo_for_throughput(bool is_full_gc,
       // Scaling is not going to work.  If the major gc time is the
       // larger, give it a full increment.
       if (major_gc_cost() >= minor_gc_cost()) {
+          //如果 major gc 的暂停 大于 minor gc，则 直接增长一倍
         scaled_promo_heap_delta =
           promo_increment_with_supplement_aligned_up(*desired_promo_size_ptr);
       }
@@ -915,10 +966,12 @@ void PSAdaptiveSizePolicy::adjust_eden_for_throughput(bool is_full_gc,
   size_t scaled_eden_heap_delta = 0;
   // Can the increment to the generation be scaled?
   if (gc_cost() >= 0.0 && minor_gc_cost() >= 0.0) {
+      // eden 区增加， 默认 百分之100
     size_t eden_heap_delta =
       eden_increment_with_supplement_aligned_up(*desired_eden_size_ptr);
     double scale_by_ratio = minor_gc_cost() / gc_cost();
     assert(scale_by_ratio <= 1.0 && scale_by_ratio >= 0.0, "Scaling is wrong");
+    // 按照 minor gc 时间的占比 缩小
     scaled_eden_heap_delta =
       (size_t) (scale_by_ratio * (double) eden_heap_delta);
     if (PrintAdaptiveSizePolicy && Verbose) {
@@ -930,6 +983,7 @@ void PSAdaptiveSizePolicy::adjust_eden_for_throughput(bool is_full_gc,
   } else if (minor_gc_cost() >= 0.0) {
     // Scaling is not going to work.  If the minor gc time is the
     // larger, give it a full increment.
+    //增加 百分之100
     if (minor_gc_cost() > major_gc_cost()) {
       scaled_eden_heap_delta =
         eden_increment_with_supplement_aligned_up(*desired_eden_size_ptr);
@@ -945,6 +999,7 @@ void PSAdaptiveSizePolicy::adjust_eden_for_throughput(bool is_full_gc,
   // the averages time to settle down.
   switch (AdaptiveSizeThroughPutPolicy) {
     case 1:
+        // 统计评估认为，增加eden区可以减少gc
       if (minor_collection_estimator()->increment_will_decrease() ||
         (_young_gen_change_for_minor_throughput
           <= AdaptiveSizePolicyInitializingSteps)) {
@@ -952,6 +1007,7 @@ void PSAdaptiveSizePolicy::adjust_eden_for_throughput(bool is_full_gc,
         // of collections.
         if ((*desired_eden_size_ptr + scaled_eden_heap_delta) >
             *desired_eden_size_ptr) {
+            //增加 eden区大小，以减少 gc频率
           *desired_eden_size_ptr =
             *desired_eden_size_ptr + scaled_eden_heap_delta;
         }
@@ -971,6 +1027,7 @@ void PSAdaptiveSizePolicy::adjust_eden_for_throughput(bool is_full_gc,
     default:
       if ((*desired_eden_size_ptr + scaled_eden_heap_delta) >
           *desired_eden_size_ptr) {
+          //增加 eden区大小，以减少 gc频率
         *desired_eden_size_ptr =
           *desired_eden_size_ptr + scaled_eden_heap_delta;
       }
@@ -1012,6 +1069,7 @@ size_t PSAdaptiveSizePolicy::adjust_promo_for_footprint(
   return reduced_size;
 }
 
+//降低 ，默认是 百分之5 *  desired_eden_size/ desired_sum
 size_t PSAdaptiveSizePolicy::adjust_eden_for_footprint(
   size_t desired_eden_size, size_t desired_sum) {
   assert(desired_eden_size <= desired_sum, "Inconsistent parameters");
@@ -1053,6 +1111,7 @@ size_t PSAdaptiveSizePolicy::scale_down(size_t change,
   return reduced_change;
 }
 
+//返回 按照百分比计算得出的值
 size_t PSAdaptiveSizePolicy::eden_increment(size_t cur_eden,
                                             uint percent_change) {
   size_t eden_heap_delta;
@@ -1060,10 +1119,12 @@ size_t PSAdaptiveSizePolicy::eden_increment(size_t cur_eden,
   return eden_heap_delta;
 }
 
+//返回增加值，默认是百分之20
 size_t PSAdaptiveSizePolicy::eden_increment(size_t cur_eden) {
   return eden_increment(cur_eden, YoungGenerationSizeIncrement);
 }
 
+//返回增加值并对齐，百分之20
 size_t PSAdaptiveSizePolicy::eden_increment_aligned_up(size_t cur_eden) {
   size_t result = eden_increment(cur_eden, YoungGenerationSizeIncrement);
   return align_size_up(result, _intra_generation_alignment);
@@ -1074,6 +1135,7 @@ size_t PSAdaptiveSizePolicy::eden_increment_aligned_down(size_t cur_eden) {
   return align_size_down(result, _intra_generation_alignment);
 }
 
+// 返回增加值，默认是 20 + 80 = 100
 size_t PSAdaptiveSizePolicy::eden_increment_with_supplement_aligned_up(
   size_t cur_eden) {
   size_t result = eden_increment(cur_eden,
@@ -1081,11 +1143,13 @@ size_t PSAdaptiveSizePolicy::eden_increment_with_supplement_aligned_up(
   return align_size_up(result, _intra_generation_alignment);
 }
 
+// 返回 降低值，并对齐
 size_t PSAdaptiveSizePolicy::eden_decrement_aligned_down(size_t cur_eden) {
   size_t eden_heap_delta = eden_decrement(cur_eden);
   return align_size_down(eden_heap_delta, _intra_generation_alignment);
 }
 
+//返回 降低值 = 默认增加值 / 比例因子，  比例因子默认 4， 增加值默认 百分之20， 则默认降低 百分之5
 size_t PSAdaptiveSizePolicy::eden_decrement(size_t cur_eden) {
   size_t eden_heap_delta = eden_increment(cur_eden) /
     AdaptiveSizeDecrementScaleFactor;
@@ -1131,6 +1195,7 @@ size_t PSAdaptiveSizePolicy::promo_decrement(size_t cur_promo) {
   return promo_heap_delta;
 }
 
+// 计算幸存者区的大小和晋升值
 uint PSAdaptiveSizePolicy::compute_survivor_space_size_and_threshold(
                                              bool is_survivor_overflow,
                                              uint tenuring_threshold,
@@ -1142,7 +1207,9 @@ uint PSAdaptiveSizePolicy::compute_survivor_space_size_and_threshold(
 
   // This method is called even if the tenuring threshold and survivor
   // spaces are not adjusted so that the averages are sampled above.
+  //没使用自适应策略
   if (!UsePSAdaptiveSurvivorSizePolicy ||
+        //没有到达调整的gc次数，默认5次
       !young_gen_policy_is_ready()) {
     return tenuring_threshold;
   }
@@ -1151,6 +1218,7 @@ uint PSAdaptiveSizePolicy::compute_survivor_space_size_and_threshold(
   // threshold based partly on the newly computed survivor size
   // (if we hit the maximum limit allowed, we'll always choose to
   // decrement the threshold).
+  //晋升值可能增加或减少，着取决于新的幸存者区大小
   bool incr_tenuring_threshold = false;
   bool decr_tenuring_threshold = false;
 
@@ -1158,6 +1226,7 @@ uint PSAdaptiveSizePolicy::compute_survivor_space_size_and_threshold(
   set_increment_tenuring_threshold_for_gc_cost(false);
   set_decrement_tenuring_threshold_for_survivor_limit(false);
 
+  //to 区没有溢出
   if (!is_survivor_overflow) {
     // Keep running averages on how much survived
 
@@ -1172,6 +1241,7 @@ uint PSAdaptiveSizePolicy::compute_survivor_space_size_and_threshold(
     const double major_cost = major_gc_cost();
     const double minor_cost = minor_gc_cost();
 
+    // minor gc 耗时大于 major gc耗时 * 晋升值比重，说明minor gc太频繁了，要降低晋升值，让对象多往老年代走
     if (minor_cost > major_cost * _threshold_tolerance_percent) {
       // Minor times are getting too long;  lower the threshold so
       // less survives and more is promoted.
@@ -1179,6 +1249,7 @@ uint PSAdaptiveSizePolicy::compute_survivor_space_size_and_threshold(
       set_decrement_tenuring_threshold_for_gc_cost(true);
     } else if (major_cost > minor_cost * _threshold_tolerance_percent) {
       // Major times are too long, so we want less promotion.
+      // 反之，则需要增加晋升值， 让对象多存留在新生代
       incr_tenuring_threshold = true;
       set_increment_tenuring_threshold_for_gc_cost(true);
     }
@@ -1193,6 +1264,7 @@ uint PSAdaptiveSizePolicy::compute_survivor_space_size_and_threshold(
     // trying to avoid many overflows from occurring if defnew size
     // is just too small.
 
+    // to 区溢出了，减少晋升值
     decr_tenuring_threshold = true;
   }
 
@@ -1200,10 +1272,12 @@ uint PSAdaptiveSizePolicy::compute_survivor_space_size_and_threshold(
   // we use this to see how good of an estimate we have of what survived.
   // We're trying to pad the survivor size as little as possible without
   // overflowing the survivor spaces.
+  //幸存者区的平均值
   size_t target_size = align_size_up((size_t)_avg_survived->padded_average(),
                                      _intra_generation_alignment);
   target_size = MAX2(target_size, _intra_generation_alignment);
 
+  //平均值超过了限制值，则用限制值
   if (target_size > survivor_limit) {
     // Target size is bigger than we can handle. Let's also reduce
     // the tenuring threshold.
@@ -1217,10 +1291,12 @@ uint PSAdaptiveSizePolicy::compute_survivor_space_size_and_threshold(
   // limit.
   if (decr_tenuring_threshold && !(AlwaysTenure || NeverTenure)) {
     if (tenuring_threshold > 1) {
+        //晋升值减少
       tenuring_threshold--;
     }
   } else if (incr_tenuring_threshold && !(AlwaysTenure || NeverTenure)) {
     if (tenuring_threshold < MaxTenuringThreshold) {
+        //晋升值增加
       tenuring_threshold++;
     }
   }
@@ -1258,19 +1334,25 @@ uint PSAdaptiveSizePolicy::compute_survivor_space_size_and_threshold(
                 tenuring_threshold, target_size);
   }
 
+  //设置 幸存者区大小
   set_survivor_size(target_size);
 
   return tenuring_threshold;
 }
 
+//更新 平均值
 void PSAdaptiveSizePolicy::update_averages(bool is_survivor_overflow,
                                            size_t survived,
                                            size_t promoted) {
   // Update averages
   if (!is_survivor_overflow) {
+      // to区 空闲
+      // 采样值 = to区占用值
     // Keep running averages on how much survived
     _avg_survived->sample(survived);
   } else {
+      // to区已经分配满了
+      // 采样值 = to区占用值 + 晋升值
     size_t survived_guess = survived + promoted;
     _avg_survived->sample(survived_guess);
   }

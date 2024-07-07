@@ -177,6 +177,7 @@ void PSOldGen::adjust_pointers() {
   object_mark_sweep()->adjust_pointers();
 }
 
+//整理
 void PSOldGen::compact() {
   object_mark_sweep()->compact(ZapUnusedHeapArea);
 }
@@ -227,7 +228,7 @@ void PSOldGen::expand(size_t bytes) {
   MutexLocker x(ExpandHeap_lock);
   const size_t alignment = virtual_space()->alignment();
   size_t aligned_bytes  = align_size_up(bytes, alignment);
-  size_t aligned_expand_bytes = align_size_up(MinHeapDeltaBytes, alignment);
+  size_t aligned_expand_bytes = align_size_up(MinHeapDeltaBytes, alignment);//最小扩大值
 
   if (UseNUMA) {
     // With NUMA we use round-robin page allocation for the old gen. Expand by at least
@@ -246,12 +247,15 @@ void PSOldGen::expand(size_t bytes) {
 
   bool success = false;
   if (aligned_expand_bytes > aligned_bytes) {
+      //若小于最小扩大值
     success = expand_by(aligned_expand_bytes);
   }
   if (!success) {
+      //不成功则扩大指定值
     success = expand_by(aligned_bytes);
   }
   if (!success) {
+      //再不成功则扩大未提交区域
     success = expand_to_reserved();
   }
 
@@ -336,12 +340,14 @@ void PSOldGen::shrink(size_t bytes) {
   }
 }
 
+//重新设置大小
 void PSOldGen::resize(size_t desired_free_space) {
   const size_t alignment = virtual_space()->alignment();
   const size_t size_before = virtual_space()->committed_size();
   size_t new_size = used_in_bytes() + desired_free_space;
   if (new_size < used_in_bytes()) {
     // Overflowed the addition.
+    //缩小区域，则设置为限制值
     new_size = gen_size_limit();
   }
   // Adjust according to our min and max
@@ -366,9 +372,11 @@ void PSOldGen::resize(size_t desired_free_space) {
     return;
   }
   if (new_size > current_size) {
+      //扩容
     size_t change_bytes = new_size - current_size;
     expand(change_bytes);
   } else {
+      //缩小
     size_t change_bytes = current_size - new_size;
     // shrink doesn't grab this lock, expand does. Is that right?
     MutexLocker x(ExpandHeap_lock);

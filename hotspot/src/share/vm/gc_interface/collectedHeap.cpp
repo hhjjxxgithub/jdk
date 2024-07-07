@@ -100,6 +100,7 @@ MetaspaceSummary CollectedHeap::create_metaspace_summary() {
   return MetaspaceSummary(meta_space, data_space, class_space);
 }
 
+//gc前打印
 void CollectedHeap::print_heap_before_gc() {
   if (PrintHeapAtGC) {
     Universe::print_heap_before_gc();
@@ -253,6 +254,7 @@ void CollectedHeap::check_for_valid_allocation_state() {
 }
 #endif
 
+//在 tlab 分配
 HeapWord* CollectedHeap::allocate_from_tlab_slow(KlassHandle klass, Thread* thread, size_t size) {
 
   // Retain tlab and allocate object in shared space if
@@ -411,6 +413,7 @@ void CollectedHeap::zap_filler_array(HeapWord* start, size_t words, bool zap)
 }
 #endif // ASSERT
 
+//在内存区域填充数组
 void
 CollectedHeap::fill_with_array(HeapWord* start, size_t words, bool zap)
 {

@@ -609,6 +609,7 @@ static inline void copy_table(address* from, address* to, int size) {
   while (size-- > 0) *to++ = *from++;
 }
 
+//通知解释器，进入safe point
 void TemplateInterpreter::notice_safepoints() {
   if (!_notice_safepoints) {
     // switch to safepoint dispatch table

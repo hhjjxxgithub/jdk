@@ -50,7 +50,7 @@ void VM_Operation::set_calling_thread(Thread* thread, ThreadPriority priority) {
   _priority = priority;
 }
 
-
+//执行操作
 void VM_Operation::evaluate() {
   ResourceMark rm;
   if (TraceVMOperation) {

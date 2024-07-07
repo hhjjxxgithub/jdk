@@ -163,20 +163,27 @@ static volatile int MonitorPopulation = 0 ;      // # Extant -- in circulation
 // if the following function is changed. The implementation is
 // extremely sensitive to race condition. Be careful.
 
+//快速进入同步块
+//解释器和编译器使用相同的汇编代码
 void ObjectSynchronizer::fast_enter(Handle obj, BasicLock* lock, bool attempt_rebias, TRAPS) {
  if (UseBiasedLocking) {
+     //不在safepoint，
     if (!SafepointSynchronize::is_at_safepoint()) {
+        //撤销偏向锁，并且重新偏向
       BiasedLocking::Condition cond = BiasedLocking::revoke_and_rebias(obj, attempt_rebias, THREAD);
       if (cond == BiasedLocking::BIAS_REVOKED_AND_REBIASED) {
+          //撤销并重新偏差成功
         return;
       }
     } else {
       assert(!attempt_rebias, "can not rebias toward VM thread");
+      //直接撤销
       BiasedLocking::revoke_at_safepoint(obj);
     }
     assert(!obj->mark()->has_bias_pattern(), "biases should be revoked by now");
  }
 
+ //慢速进入同步块
  slow_enter (obj, lock, THREAD) ;
 }
 

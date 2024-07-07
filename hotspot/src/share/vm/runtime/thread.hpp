@@ -192,8 +192,11 @@ class Thread: public ThreadShadow {
     // NOTE: avoid using the sign-bit as cc generates different test code
     //       when the sign-bit is used, and sometimes incorrectly - see CR 6398077
 
+    //线程要求挂起自己
     _external_suspend       = 0x20000000U, // thread is asked to self suspend
+    //线程已经挂起自己
     _ext_suspended          = 0x40000000U, // thread has self-suspended
+    //取消挂起
     _deopt_suspend          = 0x10000000U, // thread needs to self suspend for deopt
 
     _has_async_exception    = 0x00000001U, // there is a pending async exception
@@ -861,9 +864,12 @@ class JavaThread: public Thread {
   oop           _pending_async_exception;
 
   // Safepoint support
- public:                                         // Expose _thread_state for SafeFetchInt()
+ public:
+    //线程状态
+    // Expose _thread_state for SafeFetchInt()
   volatile JavaThreadState _thread_state;
  private:
+    //线程在 safe point的状态
   ThreadSafepointState *_safepoint_state;        // Holds information about a thread during a safepoint
   address               _saved_exception_pc;     // Saved pc of instruction where last implicit exception happened
 
@@ -1141,6 +1147,7 @@ class JavaThread: public Thread {
   }
 
   // external suspend request is completed
+  //是否是自我挂起
   bool is_ext_suspended() const {
     return (_suspend_flags & _ext_suspended) != 0;
   }

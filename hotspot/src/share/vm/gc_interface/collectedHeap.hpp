@@ -81,6 +81,7 @@ class GCHeapLog : public EventLogBase<GCMessage> {
 //     G1CollectedHeap
 //   ParallelScavengeHeap
 //
+//可收集的堆区
 class CollectedHeap : public CHeapObj<mtInternal> {
   friend class VMStructs;
   friend class IsGCActiveMark; // Block structured external access to _is_gc_active
@@ -98,6 +99,7 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   bool _defer_initial_card_mark;
 
  protected:
+    //保存
   MemRegion _reserved;
   BarrierSet* _barrier_set;
   bool _is_gc_active;
@@ -126,12 +128,14 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   void pre_initialize();
 
   // Create a new tlab. All TLAB allocations must go through this.
+  //在tlab分配
   virtual HeapWord* allocate_new_tlab(size_t size);
 
   // Accumulate statistics on all tlabs.
   virtual void accumulate_statistics_all_tlabs();
 
   // Reinitialize tlabs before resuming mutators.
+  //重新初始化 tlab
   virtual void resize_all_tlabs();
 
   // Allocate from the current thread's TLAB, with broken-out slow path.
@@ -307,6 +311,7 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   GCCause::Cause gc_cause() { return _gc_cause; }
 
   // Number of threads currently working on GC tasks.
+  //并行线程
   uint n_par_threads() { return _n_par_threads; }
 
   // May be overridden to set additional parallelism.
@@ -327,6 +332,7 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   // The obj and array allocate methods are covers for these methods.
   // mem_allocate() should never be
   // called to allocate TLABs, only individual objects.
+  //内存分配
   virtual HeapWord* mem_allocate(size_t size,
                                  bool* gc_overhead_limit_was_exceeded) = 0;
 
@@ -363,10 +369,12 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   // These functions return the addresses of the fields that define the
   // boundaries of the contiguous allocation area.  (These fields should be
   // physically near to one another.)
+  //内存头部
   virtual HeapWord** top_addr() const {
     guarantee(false, "inline contiguous allocation not supported");
     return NULL;
   }
+  //内存尾部
   virtual HeapWord** end_addr() const {
     guarantee(false, "inline contiguous allocation not supported");
     return NULL;

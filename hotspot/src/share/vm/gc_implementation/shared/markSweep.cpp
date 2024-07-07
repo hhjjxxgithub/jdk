@@ -66,6 +66,7 @@ void MarkSweep::AdjustKlassClosure::do_klass(Klass* klass) {
   klass->oops_do(&MarkSweep::adjust_pointer_closure);
 }
 
+//标记 类对象相关对象
 void MarkSweep::follow_klass(Klass* klass) {
   ClassLoaderData* cld = klass->class_loader_data();
   // The actual processing of the klass is done when we
@@ -80,6 +81,7 @@ void MarkSweep::adjust_klass(Klass* klass) {
   MarkSweep::adjust_class_loader(cld);
 }
 
+//标记 类对象相关对象
 void MarkSweep::follow_class_loader(ClassLoaderData* cld) {
   cld->oops_do(&MarkSweep::mark_and_push_closure, &MarkSweep::follow_klass_closure, true);
 }
@@ -88,12 +90,15 @@ void MarkSweep::adjust_class_loader(ClassLoaderData* cld) {
   cld->oops_do(&MarkSweep::adjust_pointer_closure, &MarkSweep::adjust_klass_closure, true);
 }
 
-
+//循环标记 该方法会一直从gc root向下搜素对象的字段
 void MarkSweep::follow_stack() {
   do {
+      //遍历被标记的对象
+
     while (!_marking_stack.is_empty()) {
       oop obj = _marking_stack.pop();
       assert (obj->is_gc_marked(), "p must be marked");
+      //迭代对象的所有非静态字段值，并标记它们并加入栈中
       obj->follow_contents();
     }
     // Process ObjArrays one at a time to avoid marking stack bloat.
@@ -112,11 +117,13 @@ void MarkSweep::FollowStackClosure::do_void() { follow_stack(); }
 // We preserve the mark which should be replaced at the end and the location
 // that it will go.  Note that the object that this markOop belongs to isn't
 // currently at that address but it will be after phase4
+//保存标记前的对象头 mark
 void MarkSweep::preserve_mark(oop obj, markOop mark) {
   // We try to store preserved marks in the to space of the new generation since
   // this is storage which should be available.  Most of the time this should be
   // sufficient space for the marks we need to preserve but if it isn't we fall
   // back to using Stacks to keep track of the overflow.
+  //如果数量较少，则存入数组中，否则存入栈中
   if (_preserved_count < _preserved_count_max) {
     _preserved_marks[_preserved_count++].init(obj, mark);
   } else {
@@ -130,6 +137,7 @@ MarkSweep::AdjustPointerClosure MarkSweep::adjust_pointer_closure;
 void MarkSweep::AdjustPointerClosure::do_oop(oop* p)       { adjust_pointer(p); }
 void MarkSweep::AdjustPointerClosure::do_oop(narrowOop* p) { adjust_pointer(p); }
 
+//调整原先保留的对象头mark 为锁定
 void MarkSweep::adjust_marks() {
   assert( _preserved_oop_stack.size() == _preserved_mark_stack.size(),
          "inconsistent preserved oop stacks");
@@ -147,6 +155,7 @@ void MarkSweep::adjust_marks() {
   }
 }
 
+//恢复对象头
 void MarkSweep::restore_marks() {
   assert(_preserved_oop_stack.size() == _preserved_mark_stack.size(),
          "inconsistent preserved oop stacks");
@@ -161,6 +170,7 @@ void MarkSweep::restore_marks() {
   }
 
   // deal with the overflow
+  //恢复原先保存的对象头 mark
   while (!_preserved_oop_stack.is_empty()) {
     oop obj       = _preserved_oop_stack.pop();
     markOop mark  = _preserved_mark_stack.pop();

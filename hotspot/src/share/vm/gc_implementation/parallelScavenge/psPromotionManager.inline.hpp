@@ -67,6 +67,9 @@ inline void PSPromotionManager::claim_or_forward_depth(T* p) {
 // into smaller submethods, but we need to be careful not to hurt
 // performance.
 //
+// 复制对象到幸存者区或者老年代，并且标记它们。
+// 该方法被调用，说明该对象在可达性分析中可达，即存活。
+// 该阶段就是所谓的标记阶段。
 template<bool promote_immediately>
 oop PSPromotionManager::copy_to_survivor_space(oop o) {
   assert(PSScavenge::should_scavenge(&o), "Sanity");
@@ -78,34 +81,43 @@ oop PSPromotionManager::copy_to_survivor_space(oop o) {
   // at any time. Do not use oop methods for accessing the mark!
   markOop test_mark = o->mark();
 
+  //是否被标记
   // The same test as "o->is_forwarded()"
   if (!test_mark->is_marked()) {
     bool new_obj_is_tenured = false;
     size_t new_obj_size = o->size();
 
+    //不直接晋升
     if (!promote_immediately) {
       // Find the objects age, MT safe.
       uint age = (test_mark->has_displaced_mark_helper() /* o->has_displaced_mark() */) ?
         test_mark->displaced_mark_helper()->age() : test_mark->age();
 
+      //age少于晋升值，分配在young to区
       // Try allocating obj in to-space (unless too old)
       if (age < PSScavenge::tenuring_threshold()) {
         new_obj = (oop) _young_lab.allocate(new_obj_size);
+        //分配在PLAB失败，但是to区还没满
         if (new_obj == NULL && !_young_gen_is_full) {
           // Do we allocate directly, or flush and refill?
+          // 如果对象的大小大于 PLAB的一半，则直接分配在to区
           if (new_obj_size > (YoungPLABSize / 2)) {
             // Allocate this object directly
             new_obj = (oop)young_space()->cas_allocate(new_obj_size);
           } else {
+              // 将PLAB数据 刷到 to区
             // Flush and fill
             _young_lab.flush();
 
+            //重新分配PLAB
             HeapWord* lab_base = young_space()->cas_allocate(YoungPLABSize);
             if (lab_base != NULL) {
+                //PLAB分配成功，将对象分配到PLAB
               _young_lab.initialize(MemRegion(lab_base, YoungPLABSize));
               // Try the young lab allocation again.
               new_obj = (oop) _young_lab.allocate(new_obj_size);
             } else {
+                //PLAB 分配失败，说明 to 区已经满了
               _young_gen_is_full = true;
             }
           }
@@ -113,6 +125,7 @@ oop PSPromotionManager::copy_to_survivor_space(oop o) {
       }
     }
 
+    //直接晋升，或者age大于晋升值，或者young区无法分配，分配在old区
     // Otherwise try allocating obj tenured
     if (new_obj == NULL) {
 #ifndef PRODUCT
@@ -155,7 +168,7 @@ oop PSPromotionManager::copy_to_survivor_space(oop o) {
         // different than the code below, and cannot share the
         // CAS testing code. Keeping the code here also minimizes
         // the impact on the common case fast path code.
-
+        //分配失败
         if (new_obj == NULL) {
           _old_gen_is_full = true;
           return oop_promotion_failed(o, test_mark);
@@ -165,9 +178,11 @@ oop PSPromotionManager::copy_to_survivor_space(oop o) {
 
     assert(new_obj != NULL, "allocation should have succeeded");
 
+    // 复制对象
     // Copy obj
     Copy::aligned_disjoint_words((HeapWord*)o, (HeapWord*)new_obj, new_obj_size);
 
+    //标记该对象
     // Now we have to CAS in the header.
     if (o->cas_forward_to(new_obj, test_mark)) {
       // We won any races, we "own" this object.
@@ -177,6 +192,7 @@ oop PSPromotionManager::copy_to_survivor_space(oop o) {
       // we're dealing with a markOop that cannot change, it is
       // okay to use the non mt safe oop methods.
       if (!new_obj_is_tenured) {
+          // 自增年龄
         new_obj->incr_age();
         assert(young_space()->contains(new_obj), "Attempt to push non-promoted obj");
       }
@@ -200,6 +216,7 @@ oop PSPromotionManager::copy_to_survivor_space(oop o) {
       // We lost, someone else "owns" this object
       guarantee(o->is_forwarded(), "Object must be forwarded if the cas failed.");
 
+      //标记对象失败，说明该对象被其他地方标记，释放分配内存
       // Try to deallocate the space.  If it was directly allocated we cannot
       // deallocate it, so we have to test.  If the deallocation fails,
       // overwrite with a filler object.
@@ -211,6 +228,7 @@ oop PSPromotionManager::copy_to_survivor_space(oop o) {
         CollectedHeap::fill_with_object((HeapWord*) new_obj, new_obj_size);
       }
 
+      //返回标记成功的对象
       // don't update this before the unallocation!
       new_obj = o->forwardee();
     }

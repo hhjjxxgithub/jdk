@@ -313,11 +313,18 @@ bool ParallelScavengeHeap::is_in_partial_collection(const void *p) {
 // and the rest will not be executed. For that reason, this method loops
 // during failed allocation attempts. If the java heap becomes exhausted,
 // we rely on the size_policy object to force a bail out.
+//分配内存
+//当分配内存失败后，直接将执行权限转移给VM线程，等待其垃圾收集结果。这个操作代价昂贵
+//一个基本的分配策略是 不进行垃圾收集而是直接扩大内存，如果条件允许的话（不能被VM线程调用，不能在safepoint）。
+//失败的分配策略是，扫描收集整个堆区、堆外内存，尝试分配内存，只要在是VM线程调用才允许。
 HeapWord* ParallelScavengeHeap::mem_allocate(
                                      size_t size,
                                      bool* gc_overhead_limit_was_exceeded) {
+    //不能在 safe point
   assert(!SafepointSynchronize::is_at_safepoint(), "should not be at safepoint");
+  // 不能是 vm 线程
   assert(Thread::current() != (Thread*)VMThread::vm_thread(), "should not be in vm thread");
+  //不能 有锁
   assert(!Heap_lock->owned_by_self(), "this thread should not own the Heap_lock");
 
   // In general gc_overhead_limit_was_exceeded should be false so
@@ -325,17 +332,22 @@ HeapWord* ParallelScavengeHeap::mem_allocate(
   // limit is being exceeded as checked below.
   *gc_overhead_limit_was_exceeded = false;
 
+  //在新生代分配
   HeapWord* result = young_gen()->allocate(size);
 
   uint loop_count = 0;
   uint gc_count = 0;
   int gclocker_stalled_count = 0;
 
+  //分配失败
   while (result == NULL) {
+      //为了防止对区域重复收集，线程需要关注 total_collections 值，当值变更了，旧不要再做收集
     // We don't want to have multiple collections for a single filled generation.
     // To prevent this, each thread tracks the total_collections() value, and if
     // the count has changed, does not do a new collection.
     //
+    // 在没有持有 heap lock 的情况下，total_collections 应该是只读的。
+    // 当获取到 heap lock 需要检查 total_collections 是否已经变更
     // The collection count must be read only while holding the heap lock. VM
     // operations also hold the heap lock during collections. There is a lock
     // contention case where thread A blocks waiting on the Heap_lock, while
@@ -344,26 +356,34 @@ HeapWord* ParallelScavengeHeap::mem_allocate(
     // The policy MUST attempt allocations during the same period it reads the
     // total_collections() value!
     {
+        //获取锁
       MutexLocker ml(Heap_lock);
+      //获取 gc次数
       gc_count = Universe::heap()->total_collections();
 
+      //在新生代分配，分配成功则退出
       result = young_gen()->allocate(size);
       if (result != NULL) {
         return result;
       }
 
       // If certain conditions hold, try allocating from the old gen.
+      //从老年代分配，分配成功则退出
       result = mem_allocate_old_gen(size);
       if (result != NULL) {
         return result;
       }
 
+      //等待多次gc，还是没有分配成功，退出
       if (gclocker_stalled_count > GCLockerRetryAllocationCount) {
         return NULL;
       }
 
       // Failed to allocate without a gc.
+      //需要gc，并且gc锁被持有
       if (GC_locker::is_active_and_needs_gc()) {
+          //当线程不在 jni 临界区，需要进行等待，直到 临界区 被清除并且允许gc，最后一个退出临近区的线程会出发 gc 初始化。
+          //因此我们可以重试 来分配内存
         // If this thread is not in a jni critical section, we stall
         // the requestor until the critical section has cleared and
         // GC allowed. When the critical section clears, a GC is
@@ -371,12 +391,15 @@ HeapWord* ParallelScavengeHeap::mem_allocate(
         // we retry the allocation sequence from the beginning of the loop,
         // rather than causing more, now probably unnecessary, GC attempts.
         JavaThread* jthr = JavaThread::current();
+        //线程不在 jni 临界区，释放堆锁
         if (!jthr->in_critical()) {
           MutexUnlocker mul(Heap_lock);
+          //等待临界区退出，发起gc
           GC_locker::stall_until_clear();
           gclocker_stalled_count += 1;
           continue;
         } else {
+            //线程在jni 临界区
           if (CheckJNICalls) {
             fatal("Possible deadlock due to allocating while"
                   " in jni critical section");
@@ -384,22 +407,29 @@ HeapWord* ParallelScavengeHeap::mem_allocate(
           return NULL;
         }
       }
+      //退出代码块，解锁
     }
 
+    // gc locker 没有锁定
     if (result == NULL) {
       // Generate a VM operation
+      //生成一个 vm 操作，让vm 线程执行 gc
+      //可能多个操作
       VM_ParallelGCFailedAllocation op(size, gc_count);
       VMThread::execute(&op);
 
       // Did the VM operation execute? If so, return the result directly.
       // This prevents us from looping until time out on requests that can
       // not be satisfied.
+      //操作前置成功
+      //这里的前置是 加锁，判断gc次数是否变更
       if (op.prologue_succeeded()) {
         assert(Universe::heap()->is_in_or_null(op.result()),
           "result not in heap");
 
         // If GC was locked out during VM operation then retry allocation
         // and/or stall as necessary.
+        //gc后仍然分配失败，并且有gc锁，再次等待gc
         if (op.gc_locked()) {
           assert(op.result() == NULL, "must be NULL if gc_locked() is true");
           continue;  // retry and/or stall as necessary
@@ -416,7 +446,9 @@ HeapWord* ParallelScavengeHeap::mem_allocate(
         // starts with a clean slate (i.e., forgets about previous overhead
         // excesses).  Fill op.result() with a filler object so that the
         // heap remains parsable.
+        //是否超过内存占用超限次数
         const bool limit_exceeded = size_policy()->gc_overhead_limit_exceeded();
+        //是否清除软引用
         const bool softrefs_clear = collector_policy()->all_soft_refs_clear();
 
         if (limit_exceeded && softrefs_clear) {
@@ -503,6 +535,7 @@ void ParallelScavengeHeap::do_full_collection(bool clear_all_soft_refs) {
 // time over limit here, that is the responsibility of the heap specific
 // collection methods. This method decides where to attempt allocations,
 // and when to attempt collections, but no collection specific policy.
+//分配失败策略，需要在gc线程、safepoint
 HeapWord* ParallelScavengeHeap::failed_mem_allocate(size_t size) {
   assert(SafepointSynchronize::is_at_safepoint(), "should be at safepoint");
   assert(Thread::current() == (Thread*)VMThread::vm_thread(), "should be in vm thread");
@@ -512,14 +545,19 @@ HeapWord* ParallelScavengeHeap::failed_mem_allocate(size_t size) {
   // We assume that allocation in eden will fail unless we collect.
 
   // First level allocation failure, scavenge and allocate in young gen.
+  //设置gc失败原因
   GCCauseSetter gccs(this, GCCause::_allocation_failure);
+  //执行gc， 可能是 major gc
   const bool invoked_full_gc = PSScavenge::invoke();
+  //gc 结束后，在新生代尝试分配
   HeapWord* result = young_gen()->allocate(size);
 
   // Second level allocation failure.
   //   Mark sweep and allocate in young generation.
   if (result == NULL && !invoked_full_gc) {
+      //如果 minor gc 后仍然分配失败，则进行 不清除软引用的 major gc
     do_full_collection(false);
+    //再次分配
     result = young_gen()->allocate(size);
   }
 
@@ -528,12 +566,14 @@ HeapWord* ParallelScavengeHeap::failed_mem_allocate(size_t size) {
   // Third level allocation failure.
   //   After mark sweep and young generation allocation failure,
   //   allocate in old generation.
+  //major gc 后仍然分配失败，在老年代分配
   if (result == NULL) {
     result = old_gen()->allocate(size);
   }
 
   // Fourth level allocation failure. We're running out of memory.
   //   More complete mark sweep and allocate in young generation.
+  //老年代分配失败，则清除所有软引用的major gc
   if (result == NULL) {
     do_full_collection(true);
     result = young_gen()->allocate(size);
@@ -541,6 +581,7 @@ HeapWord* ParallelScavengeHeap::failed_mem_allocate(size_t size) {
 
   // Fifth level allocation failure.
   //   After more complete mark sweep, allocate in old generation.
+  //清除软引用后，新生代分配失败，则尝试老年代分配
   if (result == NULL) {
     result = old_gen()->allocate(size);
   }
@@ -764,6 +805,7 @@ void ParallelScavengeHeap::resize_young_gen(size_t eden_size,
 // Before delegating the resize to the old generation,
 // the reserved space for the young and old generations
 // may be changed to accomodate the desired resize.
+//重新设置老年代大小
 void ParallelScavengeHeap::resize_old_gen(size_t desired_free_space) {
   if (UseAdaptiveGCBoundary) {
     if (size_policy()->bytes_absorbed_from_eden() != 0) {

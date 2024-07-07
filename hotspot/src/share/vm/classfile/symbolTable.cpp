@@ -88,6 +88,7 @@ int SymbolTable::symbols_counted = 0;
 
 // Remove unreferenced symbols from the symbol table
 // This is done late during GC.
+//清除不要的符号
 void SymbolTable::unlink() {
   int removed = 0;
   int total = 0;
@@ -108,6 +109,7 @@ void SymbolTable::unlink() {
       total++;
       assert(s != NULL, "just checking");
       // If reference count is zero, remove.
+      //符号没有引用
       if (s->refcount() == 0) {
         assert(!entry->is_shared(), "shared entries should be kept live");
         delete s;
@@ -739,6 +741,7 @@ oop StringTable::intern(const char* utf8_string, TRAPS) {
   return result;
 }
 
+//清除不要的字符串
 void StringTable::unlink_or_oops_do(BoolObjectClosure* is_alive, OopClosure* f) {
   // Readers of the table are unlocked, so we should only be removing
   // entries at a safepoint.
@@ -755,6 +758,7 @@ void StringTable::unlink_or_oops_do(BoolObjectClosure* is_alive, OopClosure* f) 
         }
         p = entry->next_addr();
       } else {
+          //字符串不被标记，释放
         *p = entry->next();
         the_table()->free_entry(entry);
       }
